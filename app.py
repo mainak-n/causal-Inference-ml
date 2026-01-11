@@ -61,13 +61,17 @@ css = """
         padding-top: 3rem !important;
         padding-bottom: 5rem;
     }
+    
+    /* 3. SIDEBAR ALIGNMENT (Aggressive Lift) */
     section[data-testid="stSidebar"] > div:first-child {
         padding-top: 0rem;
     }
     [data-testid="stSidebarNav"] { display: none; }
-    .stTabs { margin-top: -20px; }
+    
+    /* Pull tabs up higher using negative margin */
+    .stTabs { margin-top: -30px; } 
 
-    /* 3. TABS */
+    /* 4. TABS STYLE */
     .stTabs [data-baseweb="tab-list"] {
         display: flex;
         width: 100%;
@@ -93,21 +97,38 @@ css = """
         box-shadow: 0 1px 2px rgba(0,0,0,0.1);
     }
 
-    /* 4. MAIN INFO BOX */
+    /* 5. MAIN INFO BOX (Left Aligned) */
     .main-info-box {
         background-color: #ffffff;
         border: 1px solid #e0e0e0;
         border-radius: 10px;
         padding: 40px;
-        text-align: center;
+        text-align: left; /* CHANGED TO LEFT */
         max-width: 800px;
         margin: 0 auto;
         box-shadow: 0 4px 12px rgba(0,0,0,0.05);
     }
-    .info-header { font-size: 24px; font-weight: 700; color: #31333F; margin-bottom: 15px; }
-    .info-text { font-size: 16px; color: #6c757d; line-height: 1.6; }
+    .info-icon { font-size: 40px; margin-bottom: 20px; text-align: center; display: block; }
+    .info-header { 
+        font-size: 24px; 
+        font-weight: 700; 
+        color: #31333F; 
+        margin-bottom: 15px; 
+        text-align: center; /* Header still looks better centered, but text is left */
+    }
+    .info-text { 
+        font-size: 16px; 
+        color: #6c757d; 
+        line-height: 1.6; 
+        margin-bottom: 20px;
+    }
+    .info-list { 
+        color: #31333F; 
+        line-height: 1.8;
+        font-size: 15px;
+    }
 
-    /* 5. METRIC CARDS (Restored) */
+    /* 6. METRIC CARDS */
     div.metric-container {
         background-color: #ffffff;
         border: 1px solid #e0e0e0;
@@ -131,7 +152,7 @@ css = """
         color: #31333F;
     }
     
-    /* 6. INSIGHT BOX */
+    /* 7. INSIGHT BOX */
     .insight-box {
         background-color: #f8f9fa;
         border-left: 4px solid #ff4b4b;
@@ -208,7 +229,6 @@ def create_logic_graph(treat, out, covs, cats, use_time, time_col, int_date):
         vis_cats = [c for c in covs if c in cats]
         vis_nums = [c for c in covs if c not in cats]
         
-        # CHANGED SHAPE TO BOX (rounded)
         if vis_nums:
             label_num = "Numeric Controls\n" + "\n".join(vis_nums[:3])
             if len(vis_nums) > 3: label_num += "\n..."
@@ -264,17 +284,15 @@ def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist, g
     pdf.cell(0, 10, "2. Logic Configuration (Flowchart)", ln=True, fill=True)
     pdf.ln(5)
     
-    # Re-generate graph for PDF
-    g_pdf = create_logic_graph(**graph_config)
-    # Render to temp png
-    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp_g:
-        try:
-            # Requires graphviz binary installed in system
+    try:
+        g_pdf = create_logic_graph(**graph_config)
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp_g:
             g_pdf.render(filename=tmp_g.name.replace('.png', ''), format='png', cleanup=True)
             pdf.image(tmp_g.name, x=10, w=190)
-        except Exception as e:
-            pdf.set_font("Arial", 'I', 10)
-            pdf.cell(0, 10, f"Could not render flowchart: {str(e)}", ln=True)
+    except Exception as e:
+        # Fallback text if dot is missing
+        pdf.set_font("Arial", 'I', 10)
+        pdf.cell(0, 10, "Note: Install 'graphviz' in packages.txt to render flowchart in PDF.", ln=True)
     pdf.ln(5)
 
     # 3. Visual Impact Distribution
@@ -282,7 +300,6 @@ def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist, g
     pdf.cell(0, 10, "3. Impact Distribution", ln=True, fill=True)
     pdf.ln(5)
     
-    # Generate Chart using Matplotlib
     plt.figure(figsize=(6, 3))
     plt.hist(impact_dist, bins=30, color='#0d6efd', alpha=0.7, edgecolor='black')
     plt.axvline(x=0, color='red', linestyle='--')
@@ -296,7 +313,6 @@ def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist, g
         pdf.image(tmp_p.name, x=10, w=190)
     pdf.ln(5)
     
-    # Stats Text
     pdf.set_font("Arial", '', 10)
     pdf.cell(0, 6, f"Min: {impact_dist.min():.2f} | Max: {impact_dist.max():.2f} | Median: {impact_dist.median():.2f}", ln=True)
     pdf.ln(10)
@@ -482,8 +498,6 @@ with st.sidebar:
                     r2 = 0.0
                 
                 impact_dist = res['ml'].effect(res['X'])
-                
-                # Pass graph config to PDF generator
                 pdf_data = generate_pdf(ate, l, u, p, r2, res['treat'], res['out'], res['feats'], pd.Series(impact_dist), res['graph_config'])
                 st.download_button("DOWNLOAD PDF REPORT", pdf_data, "causal_report.pdf", "application/pdf", use_container_width=True)
 
@@ -496,12 +510,13 @@ if st.session_state['active_tab'] == "Data":
     else:
         st.markdown("""
         <div class="main-info-box">
+            <div class="info-icon">👋</div>
             <div class="info-header">Welcome to the Causal Inference Portal</div>
             <div class="info-text">
                 This tool allows you to measure the <b>true impact</b> of interventions (like marketing campaigns, feature launches, or policy changes) by separating cause from correlation using advanced <b>Double Machine Learning</b>.
             </div>
             <div class="info-list">
-                <b>📋 Required Data Format (CSV):</b><br>
+                <b>📋 Required Data Format (CSV):</b><br><br>
                 1. <b>Treatment Column:</b> 0/1 or True/False (Who got the intervention?)<br>
                 2. <b>Outcome Column:</b> Numeric (Sales, clicks, retention)<br>
                 3. <b>Control Variables:</b> User details (Age, Region, etc.)
