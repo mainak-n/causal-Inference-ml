@@ -8,6 +8,7 @@ from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
 from sklearn.preprocessing import LabelEncoder
 from fpdf import FPDF
 import graphviz
+from datetime import datetime
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
@@ -30,7 +31,7 @@ def reset_analysis():
 # --- CSS STYLING ---
 css = """
     <style>
-    /* 1. FIXED HEADER */
+    /* 1. FIXED HEADER (Centered) */
     .header-container {
         position: fixed;
         top: 3.75rem;
@@ -40,14 +41,14 @@ css = """
         z-index: 999;
         padding: 0px 40px;
         border-bottom: 1px solid #e0e0e0;
-        height: 60px; /* Fixed Header Height */
+        height: 60px;
         display: flex;
         align-items: center;
-        padding-left: 22rem; 
+        justify-content: center; /* Centered Title */
     }
     .header-title {
         font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-        font-size: 20px;
+        font-size: 22px;
         font-weight: 700;
         color: #212529;
         margin: 0;
@@ -58,10 +59,13 @@ css = """
         padding-top: 8rem !important;
     }
 
-    /* 3. SIDEBAR ALIGNMENT - PERFECT FIT */
-    /* Remove default padding from the top of the sidebar container */
+    /* 3. SIDEBAR ALIGNMENT (Aggressive Lift) */
+    /* Negative margin to pull tabs up to the very top */
     section[data-testid="stSidebar"] > div:first-child {
         padding-top: 0rem;
+    }
+    [data-testid="stSidebarNav"] {
+        display: none; /* Hide default nav if present */
     }
 
     /* 4. TABS */
@@ -174,22 +178,79 @@ def preprocess_data(df, selected_columns, categorical_cols):
             
     return data, encoders
 
-def generate_pdf(ate, lower, upper, p_val, r2, treat, out):
+def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist):
     pdf = FPDF()
     pdf.add_page()
-    pdf.set_font("Arial", 'B', 18)
+    
+    # Title
+    pdf.set_font("Arial", 'B', 20)
     pdf.cell(0, 20, "Causal Analysis Report", ln=True, align='C')
-    pdf.set_font("Arial", '', 11)
-    pdf.cell(0, 10, f"Analysis: Effect of '{treat}' on '{out}'", ln=True, align='C')
+    pdf.set_font("Arial", '', 10)
+    pdf.cell(0, 10, f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M')}", ln=True, align='C')
     pdf.ln(10)
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(0, 10, "Executive Summary", ln=True)
+    
+    # Section 1: Executive Summary
+    pdf.set_font("Arial", 'B', 14)
+    pdf.set_fill_color(240, 240, 240)
+    pdf.cell(0, 10, "1. Executive Summary", ln=True, fill=True)
+    pdf.ln(2)
+    
     pdf.set_font("Arial", '', 11)
-    pdf.cell(0, 10, f"Average Treatment Effect (ATE): {ate:.4f}", ln=True)
-    pdf.cell(0, 10, f"95% Confidence Interval: [{lower:.4f}, {upper:.4f}]", ln=True)
-    sig_txt = "Significant" if p_val < 0.05 else "Not Significant"
-    pdf.cell(0, 10, f"Statistical Significance: {sig_txt} (p={p_val:.4f})", ln=True)
-    pdf.cell(0, 10, f"Model Fit (R-Squared): {r2:.4f}", ln=True)
+    pdf.cell(0, 8, f"Intervention Variable: {treat}", ln=True)
+    pdf.cell(0, 8, f"Target Outcome: {out}", ln=True)
+    pdf.ln(2)
+    
+    # Metrics Box
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(95, 10, f"Average Impact (ATE): {ate:.4f}", border=1)
+    pdf.cell(95, 10, f"Model Fit (R2): {r2:.4f}", border=1, ln=True)
+    
+    sig_txt = "Significant (p < 0.05)" if p_val < 0.05 else "Not Significant"
+    pdf.cell(95, 10, f"Significance: {sig_txt}", border=1)
+    pdf.cell(95, 10, f"95% CI: [{lower:.4f}, {upper:.4f}]", border=1, ln=True)
+    pdf.ln(10)
+    
+    # Section 2: Impact Distribution Stats
+    pdf.set_font("Arial", 'B', 14)
+    pdf.cell(0, 10, "2. Impact Distribution", ln=True, fill=True)
+    pdf.ln(2)
+    
+    pdf.set_font("Arial", '', 11)
+    # Calculate stats from the passed series
+    min_imp = impact_dist.min()
+    max_imp = impact_dist.max()
+    med_imp = impact_dist.median()
+    std_imp = impact_dist.std()
+    
+    pdf.cell(0, 8, f"Minimum Impact observed: {min_imp:.4f}", ln=True)
+    pdf.cell(0, 8, f"Maximum Impact observed: {max_imp:.4f}", ln=True)
+    pdf.cell(0, 8, f"Median Impact: {med_imp:.4f}", ln=True)
+    pdf.cell(0, 8, f"Standard Deviation: {std_imp:.4f}", ln=True)
+    pdf.ln(10)
+
+    # Section 3: Top Drivers
+    pdf.set_font("Arial", 'B', 14)
+    pdf.cell(0, 10, "3. Top Drivers of Impact", ln=True, fill=True)
+    pdf.ln(2)
+    
+    pdf.set_font("Arial", '', 11)
+    if not feats.empty:
+        pdf.cell(0, 8, "The following variables had the highest influence on the outcome:", ln=True)
+        pdf.ln(2)
+        
+        # Table Header
+        pdf.set_font("Arial", 'B', 10)
+        pdf.cell(140, 8, "Variable Name", border=1)
+        pdf.cell(50, 8, "Importance Score", border=1, ln=True)
+        
+        # Table Rows (Top 10)
+        pdf.set_font("Arial", '', 10)
+        for index, row in feats.head(10).iterrows():
+            pdf.cell(140, 8, str(row['Feature']), border=1)
+            pdf.cell(50, 8, f"{row['Importance']:.4f}", border=1, ln=True)
+    else:
+        pdf.cell(0, 8, "No control variables were used, so driver analysis is not available.", ln=True)
+        
     return pdf.output(dest='S').encode('latin-1')
 
 def run_analysis_logic(df, treatment, outcome, controls):
@@ -227,8 +288,6 @@ def run_analysis_logic(df, treatment, outcome, controls):
     except:
         ols = None
     
-    # Calculate Feature Importance for Interpretation
-    # We fit a simple model on the calculated effects to see what drives them
     effects = est.effect(X)
     interpreter = RandomForestRegressor(max_depth=4)
     interpreter.fit(X, effects)
@@ -241,8 +300,8 @@ def run_analysis_logic(df, treatment, outcome, controls):
 
 # --- SIDEBAR ---
 with st.sidebar:
-    # SPACER: Adjusted to 60px to match Header Height exactly
-    st.markdown("<div style='height: 60px;'></div>", unsafe_allow_html=True)
+    # SPACER: Reduced to pull tabs up
+    st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
     
     tab_data, tab_logic, tab_run = st.tabs(["Data", "Logic", "Action"])
 
@@ -279,20 +338,19 @@ with st.sidebar:
                 except:
                     int_date = st.text_input("Intervention Value")
             
+            st.markdown("##### Control Variables")
             t_num, t_cat = st.tabs(["123 Numerical", "Abc Categorical"])
             
             excl = [treat_col, out_col]
             if time_col: excl.append(time_col)
             available_cols = [c for c in cols if c not in excl]
             
-            auto_num = raw_df[available_cols].select_dtypes(include=np.number).columns.tolist()
-            auto_cat = raw_df[available_cols].select_dtypes(exclude=np.number).columns.tolist()
-
+            # DEFAULT IS EMPTY LIST []
             with t_num:
-                num_covs = st.multiselect("Select Numeric Controls", available_cols, default=[c for c in auto_num if c in available_cols])
+                num_covs = st.multiselect("Select Numeric Controls", available_cols, default=[])
             
             with t_cat:
-                cat_covs = st.multiselect("Select Categorical Controls", available_cols, default=[c for c in auto_cat if c in available_cols], help="Max 100 unique values.")
+                cat_covs = st.multiselect("Select Categorical Controls", available_cols, default=[], help="Max 100 unique values.")
 
             covs = list(set(num_covs + cat_covs))
             cats = cat_covs 
@@ -306,7 +364,6 @@ with st.sidebar:
                 prev_btn_type = "primary" if st.session_state['active_tab'] != "Action" else "secondary"
                 st.button("Show Previous Analysis", type=prev_btn_type, use_container_width=True, on_click=set_view, args=("Action",))
             
-            # RUN BUTTON
             if st.button("RUN NEW ANALYSIS", type="primary", use_container_width=True):
                 st.session_state['active_tab'] = "Action"
                 
@@ -337,7 +394,6 @@ with st.sidebar:
                 except Exception as e:
                     st.error(f"Analysis Failed: {e}")
             
-            # STOP / RESET BUTTON
             st.button("Reset / Stop Analysis", type="secondary", use_container_width=True, on_click=reset_analysis)
             
             if st.session_state['results']:
@@ -352,7 +408,9 @@ with st.sidebar:
                     p = np.nan
                     r2 = 0.0
                 
-                pdf_data = generate_pdf(ate, l, u, p, r2, res['treat'], res['out'])
+                # Pass feature importance and impact distribution to PDF
+                impact_dist = res['ml'].effect(res['X'])
+                pdf_data = generate_pdf(ate, l, u, p, r2, res['treat'], res['out'], res['feats'], pd.Series(impact_dist))
                 st.download_button("DOWNLOAD PDF REPORT", pdf_data, "causal_report.pdf", "application/pdf", use_container_width=True)
 
 # --- MAIN PAGE ---
@@ -423,7 +481,6 @@ elif st.session_state['active_tab'] == "Action":
         
         st.subheader("Analysis Results")
         
-        # --- INSIGHT BOX (NEW) ---
         direction = "INCREASE" if ate > 0 else "DECREASE"
         sig_phrase = "statistically significant" if is_sig else "not statistically conclusive"
         
@@ -444,7 +501,6 @@ elif st.session_state['active_tab'] == "Action":
         
         st.markdown("---")
         
-        # Detailed Analysis Tabs
         t1, t2, t3, t4 = st.tabs(["📉 Impact Distribution", "🧠 Drivers of Impact", "🔍 Segment Analysis", "📊 Stats Table"])
         
         res['df']['Impact'] = ml.effect(res['X'])
@@ -467,7 +523,6 @@ elif st.session_state['active_tab'] == "Action":
             st.caption("Does the impact depend on a specific variable?")
             if not feats.empty:
                 seg_var = st.selectbox("Select Variable to Segment By:", feats['Feature'].unique())
-                # Check if the variable is in the cleaned dataframe (might be OHE)
                 if seg_var in res['df'].columns:
                     fig3 = px.scatter(res['df'], x=seg_var, y='Impact', title=f"Impact vs {seg_var}", color='Impact', color_continuous_scale='RdBu')
                     st.plotly_chart(fig3, use_container_width=True)
