@@ -2,293 +2,278 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
-import plotly.graph_objects as go
+import statsmodels.api as sm
 from econml.dml import CausalForestDML
 from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
 from sklearn.preprocessing import LabelEncoder
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
-    page_title="Causal Inference Analytics",
+    page_title="Causal Command Center",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# --- PROFESSIONAL CSS STYLING ---
+# --- TACTICAL CSS STYLING ---
 st.markdown("""
     <style>
-    .main {
-        background-color: #ffffff;
-        font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    /* 1. MAKE SIDEBAR WIDER & TACTICAL */
+    [data-testid="stSidebar"] {
+        min-width: 400px;
+        max-width: 450px;
+        background-color: #f4f5f7;
+        border-right: 2px solid #d0d7de;
     }
-    h1, h2, h3 {
-        color: #0e1117;
-        font-weight: 600;
+    
+    /* 2. STYLE THE TABS TO LOOK LIKE BUTTONS */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px;
     }
-    .metric-container {
-        border: 1px solid #e6e6e6;
-        padding: 20px;
-        border-radius: 8px;
-        background-color: #f8f9fa;
-        text-align: center;
-    }
-    .stDataFrame {
-        border: 1px solid #e6e6e6;
+    .stTabs [data-baseweb="tab"] {
+        height: 50px;
+        white-space: pre-wrap;
+        background-color: white;
         border-radius: 5px;
-    }
-    div[data-testid="stExpander"] details summary {
+        border: 1px solid #e0e0e0;
         font-weight: 600;
-        color: #31333F;
+        flex-grow: 1; /* Make them equal width */
     }
+    .stTabs [aria-selected="true"] {
+        background-color: #4e8cff !important;
+        color: white !important;
+        border: none;
+    }
+
+    /* 3. METRIC BOXES */
+    .metric-box {
+        border: 1px solid #e0e0e0;
+        padding: 15px;
+        border-radius: 8px;
+        background-color: white;
+        text-align: center;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+    .stat-sig { color: #28a745; font-weight: bold; }
+    .stat-insig { color: #dc3545; font-weight: bold; }
+    
+    /* 4. HEADERS */
+    h1, h2, h3 { color: #1f2937; font-weight: 700; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- CORE LOGIC FUNCTIONS ---
-
+# --- HELPER FUNCTIONS ---
 def preprocess_data(df, selected_columns):
-    """
-    Prepares data for ML: Handles missing values and encodes text columns.
-    """
     data = df[selected_columns].copy()
     data = data.dropna()
-    
     encoders = {}
     for col in data.columns:
-        if data[col].dtype == 'object':
+        if data[col].dtype == 'object' or isinstance(data[col].dtype, pd.PeriodDtype):
             le = LabelEncoder()
             data[col] = le.fit_transform(data[col].astype(str))
             encoders[col] = le
-            
     return data, encoders
 
-def run_causal_model(data, treatment_col, outcome_col, controls, time_col=None, intervention_val=None):
-    """
-    Runs Double Machine Learning (Causal Forest).
-    Logic:
-    - If Time is provided: Implements Difference-in-Differences (DiD) logic.
-    - If No Time: Implements standard Treatment Effect logic.
-    """
-    
-    # 1. Setup Variables
-    Y = data[outcome_col]
-    X = data[controls]  # Confounders
-    
-    # 2. Define Treatment Definition based on Logic
-    if time_col and intervention_val:
-        # --- DIFFERENCE-IN-DIFFERENCES LOGIC ---
-        # We need to isolate the interaction: Being in Treatment Group AND being in Post-Period.
-        
-        # Create Post-Period Dummy (1 if after intervention, 0 if before)
-        # Assumes data is sorted or comparable. 
-        # For numeric time (years/days):
-        data['Is_Post'] = (data[time_col] >= intervention_val).astype(int)
-        
-        # The 'Treatment' for the model is the INTERACTION term.
-        # T = 1 only if you are in the Treatment Group AND it is the Post Period.
-        T = data[treatment_col] * data['Is_Post']
-        
-        # CRITICAL STEP: 
-        # We must add the Main Effects (Group ID and Time ID) to the Controls (X).
-        # This forces the model to remove the baseline group differences and baseline time trends.
-        X = X.copy()
-        X['Group_Main_Effect'] = data[treatment_col]
-        X['Time_Main_Effect'] = data['Is_Post']
-        
+def run_analysis(df, treatment_col, outcome_col, covariates, time_col=None, intervention_date=None):
+    # Setup Logic (Same as before)
+    if not covariates:
+        X = np.zeros((len(df), 1))
+        feature_names = ["No_Controls"]
     else:
-        # --- STANDARD RCT LOGIC ---
-        # No time dimension. Intervention started at the beginning.
-        # Simple comparison of Treatment vs Control group, controlling for X.
-        T = data[treatment_col]
+        X = df[covariates]
+        feature_names = covariates
     
-    # 3. Train Causal Forest
-    # We use Random Forest for both propensity (T) and outcome (Y) models to handle non-linearities.
+    Y = df[outcome_col]
+    
+    # Treatment Definition
+    if time_col and intervention_date:
+        try:
+            time_series = pd.to_datetime(df[time_col])
+            intervention_ts = pd.to_datetime(intervention_date)
+            df['Is_Post'] = (time_series >= intervention_ts).astype(int)
+            T = df[treatment_col] * df['Is_Post']
+            
+            if not covariates:
+                X = pd.DataFrame({'Group_Effect': df[treatment_col], 'Time_Effect': df['Is_Post']})
+                feature_names = ['Group_Effect', 'Time_Effect']
+            else:
+                X = X.copy()
+                X['Group_Effect'] = df[treatment_col]
+                X['Time_Effect'] = df['Is_Post']
+                feature_names = covariates + ['Group_Effect', 'Time_Effect']
+        except Exception as e:
+            st.error(f"Date Error: {e}")
+            return None, None, None, None
+    else:
+        T = df[treatment_col]
+
+    # Models
     est = CausalForestDML(
-        model_y=RandomForestRegressor(n_estimators=100, max_depth=6, random_state=42),
-        model_t=RandomForestClassifier(n_estimators=100, max_depth=6, random_state=42),
-        discrete_treatment=True,
-        random_state=42
+        model_y=RandomForestRegressor(n_estimators=50, max_depth=6),
+        model_t=RandomForestClassifier(n_estimators=50, max_depth=6),
+        discrete_treatment=True
     )
-    
     est.fit(Y, T, X=X)
     
-    return est, X, T
+    X_stats = sm.add_constant(pd.concat([T.rename("Treatment_Effect"), pd.DataFrame(X, index=df.index)], axis=1))
+    X_stats.columns = ["Const", "Treatment_Effect"] + [f"Control_{i}" if isinstance(c, int) else c for i, c in enumerate(feature_names)]
+    ols_model = sm.OLS(Y, X_stats).fit()
+    
+    return est, ols_model, X, T
 
-# --- APPLICATION LAYOUT ---
+# --- UI LAYOUT ---
 
-st.title("Causal Effect Analysis Portal")
-st.markdown("""
-This tool uses **Double Machine Learning** to estimate the causal impact of an intervention. 
-It supports both **Randomized Control Trials (RCT)** and **Difference-in-Differences (DiD)** designs.
-""")
+st.title("🔮 Causal Command Center")
 
-st.markdown("---")
-
-# 1. SIDEBAR CONFIGURATION
+# --- SIDEBAR: TACTICAL TABS ---
 with st.sidebar:
-    st.header("Configuration")
+    st.header("Operation Panel")
     
-    uploaded_file = st.file_uploader("Upload Data File (CSV)", type="csv")
+    # THE KEY CHANGE: Tabs instead of scrolling list
+    tab_data, tab_logic, tab_run = st.tabs(["📂 Data", "⚙️ Logic", "🚀 Execute"])
     
-    if uploaded_file:
-        raw_df = pd.read_csv(uploaded_file)
-        all_cols = raw_df.columns.tolist()
-        
-        st.subheader("Variable Mapping")
-        
-        # A. Treatment & Outcome
-        treatment_col = st.selectbox(
-            "Treatment Group Column", 
-            all_cols,
-            help="Binary column (0=Control, 1=Treatment Group)"
-        )
-        
-        outcome_col = st.selectbox(
-            "Outcome Column", 
-            all_cols, 
-            index=1,
-            help="The metric affected by the intervention (e.g., Sales, Health Score)"
-        )
-        
-        # B. Time Configuration (Optional)
-        use_time = st.checkbox("Include Time Dimension (Pre/Post Analysis)")
-        time_col = None
-        intervention_val = None
-        
-        if use_time:
-            time_col = st.selectbox("Time Column", all_cols)
-            # Try to infer type for input
-            if pd.api.types.is_numeric_dtype(raw_df[time_col]):
-                intervention_val = st.number_input(f"Intervention Start Value ({time_col})", value=raw_df[time_col].median())
-            else:
-                intervention_val = st.text_input(f"Intervention Start Value ({time_col})")
-                
-        # C. Confounders
-        # Exclude selected columns from options
-        exclude = [treatment_col, outcome_col]
-        if time_col: exclude.append(time_col)
-        
-        covariates = st.multiselect(
-            "Control Variables (Confounders)", 
-            [c for c in all_cols if c not in exclude],
-            help="Select all other variables that influence the outcome."
-        )
-        
-        run_btn = st.button("Run Analysis", type="primary")
-
-# 2. MAIN CONTENT AREA
-if uploaded_file:
-    # DATA PREVIEW SECTION
-    st.subheader("Data Inspector")
-    st.markdown(f"**Filename:** {uploaded_file.name} | **Rows:** {len(raw_df)} | **Columns:** {len(raw_df.columns)}")
-    
-    # Display top 20 rows as requested
-    st.dataframe(raw_df.head(20), use_container_width=True)
-    
-    if run_btn:
-        if not covariates:
-            st.error("Configuration Error: Please select at least one Control Variable.")
+    # --- TAB 1: DATA ---
+    with tab_data:
+        st.info("Step 1: Ingest Dataset")
+        uploaded_file = st.file_uploader("Drop CSV Here", type="csv")
+        if uploaded_file:
+            raw_df = pd.read_csv(uploaded_file)
+            st.success(f"Loaded: {len(raw_df)} Rows")
+            cols = raw_df.columns.tolist()
         else:
-            with st.spinner("Processing Causal Models..."):
-                try:
-                    # 1. Prepare Data
-                    cols_needed = [treatment_col, outcome_col] + covariates
-                    if time_col: cols_needed.append(time_col)
-                    
-                    clean_df, encoders = preprocess_data(raw_df, cols_needed)
-                    
-                    # 2. Run Model
-                    model, X_test, T_vector = run_causal_model(
-                        clean_df, treatment_col, outcome_col, covariates, 
-                        time_col, intervention_val
-                    )
-                    
-                    # 3. Extract Metrics
-                    ate = model.ate(X_test)
-                    ate_interval = model.ate_interval(X_test)
-                    clean_df['Calculated_Impact'] = model.effect(X_test)
-                    
-                    # --- RESULTS DASHBOARD ---
-                    st.markdown("### Analysis Results")
-                    
-                    # Metric Cards
-                    c1, c2, c3 = st.columns(3)
-                    
-                    with c1:
-                        st.markdown(
-                            f"""<div class="metric-container">
-                            <div style="font-size: 14px; color: #666;">Average Treatment Effect</div>
-                            <div style="font-size: 24px; font-weight: bold;">{ate:.4f}</div>
-                            </div>""", 
-                            unsafe_allow_html=True
-                        )
-                    
-                    with c2:
-                        lower, upper = ate_interval
-                        st.markdown(
-                            f"""<div class="metric-container">
-                            <div style="font-size: 14px; color: #666;">95% Confidence Interval</div>
-                            <div style="font-size: 24px; font-weight: bold;">[{lower:.3f}, {upper:.3f}]</div>
-                            </div>""", 
-                            unsafe_allow_html=True
-                        )
-                    
-                    with c3:
-                        is_sig = (lower > 0) or (upper < 0)
-                        status = "Statistically Significant" if is_sig else "Inconclusive (Null Hypothesis)"
-                        color = "#28a745" if is_sig else "#6c757d"
-                        
-                        st.markdown(
-                            f"""<div class="metric-container">
-                            <div style="font-size: 14px; color: #666;">Statistical Conclusion</div>
-                            <div style="font-size: 20px; font-weight: bold; color: {color};">{status}</div>
-                            </div>""", 
-                            unsafe_allow_html=True
-                        )
+            cols = []
 
-                    # --- DETAILED CHARTS ---
-                    st.markdown("### Visualization")
+    # --- TAB 2: LOGIC ---
+    with tab_logic:
+        if uploaded_file:
+            st.info("Step 2: Map Variables")
+            
+            treatment_col = st.selectbox("Treatment (0/1)", cols, index=0)
+            outcome_col = st.selectbox("Outcome (KPI)", cols, index=1 if len(cols)>1 else 0)
+            
+            st.markdown("---")
+            use_time = st.checkbox("Enable Time Dimension")
+            
+            time_col = None
+            intervention_date = None
+            
+            if use_time:
+                time_col = st.selectbox("Date Column", cols)
+                try:
+                    min_d = pd.to_datetime(raw_df[time_col]).min()
+                    max_d = pd.to_datetime(raw_df[time_col]).max()
+                    intervention_date = st.date_input("Intervention Date", value=min_d, min_value=min_d, max_value=max_d)
+                except:
+                    intervention_date = st.text_input("Intervention Value")
+            
+            st.markdown("---")
+            exclude = [treatment_col, outcome_col]
+            if time_col: exclude.append(time_col)
+            covariates = st.multiselect("Confounders (Controls)", [c for c in cols if c not in exclude])
+        else:
+            st.warning("Upload data first.")
+
+    # --- TAB 3: EXECUTE ---
+    with tab_run:
+        if uploaded_file:
+            st.info("Step 3: Run Models")
+            st.markdown("Click below to train Double ML & OLS models.")
+            run_btn = st.button("🔥 RUN ANALYSIS", type="primary", use_container_width=True)
+        else:
+            st.warning("Upload data first.")
+
+# --- MAIN SCREEN ---
+
+if uploaded_file:
+    # Quick visual check of uploaded data
+    with st.expander("👀 View Raw Data Source", expanded=True):
+        st.dataframe(raw_df.head(10), use_container_width=True)
+
+    if run_btn:
+        with st.spinner("🤖 Simulating Counterfactuals..."):
+            
+            # Prepare & Run
+            needed_cols = [treatment_col, outcome_col] + covariates
+            if time_col: needed_cols.append(time_col)
+            
+            clean_df, encoders = preprocess_data(raw_df, needed_cols)
+            
+            ml_model, stats_model, X_test, T_test = run_analysis(
+                clean_df, treatment_col, outcome_col, covariates, time_col, intervention_date
+            )
+            
+            if ml_model:
+                # Metrics
+                ate = ml_model.ate(X_test)
+                lower, upper = ml_model.ate_interval(X_test)
+                p_value = stats_model.pvalues["Treatment_Effect"]
+                r_squared = stats_model.rsquared
+                
+                # --- RESULTS ---
+                st.markdown("### 📊 Executive Summary")
+                
+                # 4-Column Metric Layout
+                c1, c2, c3, c4 = st.columns(4)
+                
+                with c1:
+                    st.markdown(f"""<div class="metric-box">
+                        <div style="font-size:12px; color:#888;">AVERAGE LIFT</div>
+                        <div style="font-size:26px; font-weight:800;">{ate:.2f}</div>
+                    </div>""", unsafe_allow_html=True)
                     
-                    tab1, tab2 = st.tabs(["Impact Distribution", "Feature Drivers"])
+                with c2:
+                    st.markdown(f"""<div class="metric-box">
+                        <div style="font-size:12px; color:#888;">CONFIDENCE INTERVAL</div>
+                        <div style="font-size:26px; font-weight:800;">[{lower:.2f}, {upper:.2f}]</div>
+                    </div>""", unsafe_allow_html=True)
                     
-                    with tab1:
-                        st.markdown("**Distribution of Causal Impact across Population**")
-                        fig = px.histogram(
-                            clean_df, 
-                            x='Calculated_Impact', 
-                            nbins=30,
-                            title="How much did the intervention change the outcome per row?",
-                            color_discrete_sequence=['#4e8cff']
-                        )
-                        fig.add_vline(x=0, line_dash="dash", line_color="black")
-                        fig.update_layout(showlegend=False, plot_bgcolor="white")
-                        st.plotly_chart(fig, use_container_width=True)
-                        
-                    with tab2:
-                        st.markdown("**Which variables influence the effectiveness?**")
-                        # Simple feature importance on the effects
+                with c3:
+                    color = "stat-sig" if p_value < 0.05 else "stat-insig"
+                    txt = "SIGNIFICANT" if p_value < 0.05 else "INCONCLUSIVE"
+                    st.markdown(f"""<div class="metric-box">
+                        <div style="font-size:12px; color:#888;">STATISTICAL CHECK</div>
+                        <div style="font-size:20px; font-weight:800;" class="{color}">{txt}</div>
+                    </div>""", unsafe_allow_html=True)
+                    
+                with c4:
+                     st.markdown(f"""<div class="metric-box">
+                        <div style="font-size:12px; color:#888;">MODEL FIT (R²)</div>
+                        <div style="font-size:26px; font-weight:800;">{r_squared:.2f}</div>
+                    </div>""", unsafe_allow_html=True)
+
+                st.markdown("---")
+
+                # --- TABS FOR VISUALIZATION ---
+                viz_tab1, viz_tab2, viz_tab3 = st.tabs(["📉 Impact Distribution", "🧠 Feature Drivers", "📑 Full Stats"])
+                
+                clean_df['Calculated_Impact'] = ml_model.effect(X_test)
+
+                with viz_tab1:
+                    st.markdown("**Did everyone react the same way?**")
+                    fig = px.histogram(clean_df, x='Calculated_Impact', nbins=40, color_discrete_sequence=['#4e8cff'])
+                    fig.add_vline(x=0, line_dash="dash", line_color="black")
+                    fig.update_layout(showlegend=False, margin=dict(t=10,b=10,l=10,r=10))
+                    st.plotly_chart(fig, use_container_width=True)
+                    st.caption("Right of line = Positive Impact. Left of line = Negative Impact.")
+                    
+                with viz_tab2:
+                    st.markdown("**What characteristics change the outcome?**")
+                    if covariates:
                         interpreter = RandomForestRegressor(max_depth=4)
                         interpreter.fit(X_test, clean_df['Calculated_Impact'])
-                        
-                        imp_df = pd.DataFrame({
-                            'Variable': covariates,
-                            'Importance': interpreter.feature_importances_
-                        }).sort_values('Importance', ascending=True)
-                        
-                        fig2 = px.bar(
-                            imp_df, 
-                            x='Importance', 
-                            y='Variable', 
-                            orientation='h',
-                            title="Drivers of Heterogeneity",
-                            color_discrete_sequence=['#4e8cff']
-                        )
-                        fig2.update_layout(plot_bgcolor="white")
+                        imp = pd.DataFrame({'Var': X_test.columns, 'Imp': interpreter.feature_importances_}).sort_values('Imp')
+                        fig2 = px.bar(imp, x='Imp', y='Var', orientation='h', color_discrete_sequence=['#4e8cff'])
                         st.plotly_chart(fig2, use_container_width=True)
-
-                except Exception as e:
-                    st.error(f"Analysis Error: {str(e)}")
-                    st.info("Tip: Ensure your columns are numeric or valid categorical text.")
+                    else:
+                        st.info("No controls selected.")
+                        
+                with viz_tab3:
+                    st.text(stats_model.summary())
 
 else:
-    # Empty State
-    st.info("Please upload a CSV file from the sidebar to begin analysis.")
+    # Empty State with a nice prompt
+    st.markdown("""
+    <div style="text-align: center; padding: 50px; color: #888;">
+        <h3>👋 Welcome to Causal Command</h3>
+        <p>Please open the <b>📂 Data</b> tab in the sidebar to begin.</p>
+    </div>
+    """, unsafe_allow_html=True)
