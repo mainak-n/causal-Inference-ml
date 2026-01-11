@@ -275,6 +275,7 @@ def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist, g
         g_pdf = create_logic_graph(**graph_config)
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp_g:
             g_pdf.render(filename=tmp_g.name.replace('.png', ''), format='png', cleanup=True)
+            # Reduced size to 80 (approx 40% reduction from original 170)
             pdf.image(tmp_g.name, x=65, w=80) 
     except Exception as e:
         pdf.set_font("Arial", 'I', 8)
@@ -298,6 +299,7 @@ def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist, g
     
     with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp_p:
         plt.savefig(tmp_p.name, format="png", dpi=100)
+        # Reduced width
         pdf.image(tmp_p.name, x=65, w=80)
     pdf.ln(3)
     
@@ -509,19 +511,18 @@ if st.session_state['active_tab'] == "Data":
         
         st.dataframe(raw_df.head(100), use_container_width=True)
     else:
-        # Use simple markdown for the main landing page to ensure clean rendering
+        # PURE MARKDOWN FOR MAIN PAGE TO AVOID HTML ISSUES
         st.markdown("""
-        <div style="background-color: #ffffff; border: 1px solid #e0e0e0; border-radius: 10px; padding: 40px; text-align: left; max-width: 800px; margin: 0 auto; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
-            <div style="font-size: 24px; font-weight: 700; color: #31333F; margin-bottom: 15px; text-align: center;">Welcome to the Causal Inference Portal</div>
-            <div style="font-size: 16px; color: #555; line-height: 1.6; margin-bottom: 25px;">
+        <div class="main-info-box">
+            <h3 style="text-align: center; color: #31333F; margin-bottom: 15px;">Welcome to the Causal Inference Portal</h3>
+            <p style="color: #555; line-height: 1.6; margin-bottom: 25px;">
                 This tool allows you to measure the <b>true impact</b> of interventions (like marketing campaigns, feature launches, or policy changes) by separating cause from correlation using advanced <b>Double Machine Learning</b>.
-            </div>
-            
-            <div style="font-weight: 600; color: #31333F; font-size: 16px; margin-bottom: 15px;">📋 Required Data Format (CSV):</div>
+            </p>
+            <h4 style="color: #31333F; margin-bottom: 15px;">📋 Required Data Format (CSV):</h4>
         </div>
         """, unsafe_allow_html=True)
         
-        # Standard Markdown Table (Outside HTML block for safety)
+        # Standard Markdown Table
         st.markdown("""
         | Treatment (0/1) | Outcome ($) | Control 1 (Age) | Control 2 (Region) |
         | :--- | :--- | :--- | :--- |
@@ -531,10 +532,12 @@ if st.session_state['active_tab'] == "Data":
         """)
         
         st.markdown("""
-        1. **Treatment Column:** 0 or 1 (Who got the intervention?)
-        2. **Outcome Column:** Numeric (Sales, clicks, retention)
-        3. **Control Variables:** User attributes (Age, Region, etc.)
-        """)
+        <div style="margin-top: 20px; color: #31333F; line-height: 1.8;">
+        1. <b>Treatment Column:</b> 0 or 1 (Who got the intervention?)<br>
+        2. <b>Outcome Column:</b> Numeric (Sales, clicks, retention)<br>
+        3. <b>Control Variables:</b> User attributes (Age, Region, etc.)
+        </div>
+        """, unsafe_allow_html=True)
 
 elif st.session_state['active_tab'] == "Logic":
     if st.session_state['uploaded_file']:
@@ -574,7 +577,7 @@ elif st.session_state['active_tab'] == "Action":
         
         fname = st.session_state['uploaded_file'].name
         
-        # Header with Filename on SAME LINE
+        # HEADER + FILENAME ON SAME LINE
         st.markdown(f"""
         <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 20px;">
             <h3 style="margin: 0; padding: 0; font-family: 'Source Sans Pro', sans-serif; font-weight: 600; color: #31333F;">Analysis Results</h3>
@@ -604,8 +607,7 @@ elif st.session_state['active_tab'] == "Action":
         with c4: 
              st.markdown(f'<div class="metric-container"><div class="metric-label">Model Fit (R2)</div><div class="metric-value">{r2:.2f}</div></div>', unsafe_allow_html=True)
         
-        # SPACER to prevent overlap
-        st.markdown("<div style='height: 40px;'></div>", unsafe_allow_html=True)
+        st.markdown("<div style='margin-top: 20px;'></div>", unsafe_allow_html=True)
         
         t1, t2, t3, t4 = st.tabs(["📉 Impact Distribution", "🧠 Drivers of Impact", "🔍 Segment Analysis", "📊 Stats Table"])
         
