@@ -31,12 +31,6 @@ def set_view(view_name):
 def reset_analysis():
     st.session_state['results'] = None
 
-# --- CACHING (Optimized for 200MB+ Data) ---
-@st.cache_data(max_entries=1)
-def load_data(uploaded_file):
-    """Loads and caches data to handle large files (up to 200MB) efficiently."""
-    return pd.read_csv(uploaded_file)
-
 # --- CSS STYLING ---
 css = """
     <style>
@@ -67,13 +61,19 @@ css = """
         padding-top: 3rem !important;
         padding-bottom: 5rem;
     }
+    
+    /* 3. SIDEBAR SPECIFIC STYLES */
     section[data-testid="stSidebar"] > div:first-child {
         padding-top: 0rem;
     }
     [data-testid="stSidebarNav"] { display: none; }
-    .stTabs { margin-top: -30px; } 
+    
+    /* ONLY pull up tabs in the sidebar, not the main page */
+    section[data-testid="stSidebar"] .stTabs { 
+        margin-top: -30px; 
+    } 
 
-    /* 3. TABS STYLE */
+    /* 4. TABS STYLE (Global) */
     .stTabs [data-baseweb="tab-list"] {
         display: flex;
         width: 100%;
@@ -99,7 +99,7 @@ css = """
         box-shadow: 0 1px 2px rgba(0,0,0,0.1);
     }
 
-    /* 4. METRIC CARDS */
+    /* 5. METRIC CARDS */
     div.metric-container {
         background-color: #ffffff;
         border: 1px solid #e0e0e0;
@@ -123,7 +123,7 @@ css = """
         color: #31333F;
     }
     
-    /* 5. INSIGHT BOX */
+    /* 6. INSIGHT BOX */
     .insight-box {
         background-color: #f8f9fa;
         border-left: 4px solid #ff4b4b;
@@ -133,6 +133,18 @@ css = """
         font-size: 15px;
         color: #31333F;
         box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+    
+    /* 7. MAIN INFO BOX */
+    .main-info-box {
+        background-color: #ffffff;
+        border: 1px solid #e0e0e0;
+        border-radius: 10px;
+        padding: 40px;
+        text-align: left;
+        max-width: 800px;
+        margin: 0 auto;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
     }
 
     /* General */
@@ -251,7 +263,7 @@ def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist, g
     pdf.cell(95, 7, f"95% CI: [{lower:.4f}, {upper:.4f}]", border=1, ln=True)
     pdf.ln(6)
     
-    # 2. Logic Flowchart (REDUCED SIZE)
+    # 2. Logic Flowchart
     pdf.set_font("Arial", 'B', 11)
     pdf.cell(0, 7, "2. Logic Configuration (Flowchart)", ln=True, fill=True)
     pdf.ln(3)
@@ -260,8 +272,8 @@ def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist, g
         g_pdf = create_logic_graph(**graph_config)
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp_g:
             g_pdf.render(filename=tmp_g.name.replace('.png', ''), format='png', cleanup=True)
-            # Reduced size
-            pdf.image(tmp_g.name, x=65, w=80) 
+            # Increased size to 100 (20% larger than 80)
+            pdf.image(tmp_g.name, x=55, w=100) 
     except Exception as e:
         pdf.set_font("Arial", 'I', 8)
         pdf.cell(0, 6, "Note: To render flowchart, ensure 'graphviz' is in packages.txt", ln=True)
@@ -284,8 +296,8 @@ def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist, g
     
     with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp_p:
         plt.savefig(tmp_p.name, format="png", dpi=100)
-        # Reduced width
-        pdf.image(tmp_p.name, x=65, w=80)
+        # Increased size to 100 (20% larger than 80)
+        pdf.image(tmp_p.name, x=55, w=100)
     pdf.ln(3)
     
     pdf.set_font("Arial", '', 8)
@@ -373,8 +385,8 @@ with st.sidebar:
         
         if uploaded_file:
             # Load and Cache Data
-            raw_df = load_data(uploaded_file)
-            st.session_state['uploaded_file'] = uploaded_file # Keep reference
+            raw_df = pd.read_csv(uploaded_file)
+            st.session_state['uploaded_file'] = uploaded_file 
             
             cols = raw_df.columns.tolist()
             st.success(f"Loaded {len(raw_df)} rows")
@@ -491,7 +503,7 @@ if st.session_state['active_tab'] == "Data":
         st.markdown("### 📋 Required Data Format (CSV)")
         st.markdown("Your CSV should follow this structure:")
         
-        # Standard Markdown Table (Clean & Robust)
+        # Standard Markdown Table (Robust & Clean)
         st.markdown("""
         | Treatment (0/1) | Outcome ($) | Control 1 (Age) | Control 2 (Region) |
         | :--- | :--- | :--- | :--- |
@@ -559,7 +571,8 @@ elif st.session_state['active_tab'] == "Action":
         with c4: 
              st.markdown(f'<div class="metric-container"><div class="metric-label">Model Fit (R2)</div><div class="metric-value">{r2:.2f}</div></div>', unsafe_allow_html=True)
         
-        # REMOVED THE LINE HERE AS REQUESTED
+        # Spacer before tabs
+        st.markdown("<div style='margin-top: 20px;'></div>", unsafe_allow_html=True)
         
         t1, t2, t3, t4 = st.tabs(["📉 Impact Distribution", "🧠 Drivers of Impact", "🔍 Segment Analysis", "📊 Stats Table"])
         
