@@ -24,75 +24,64 @@ if 'active_tab' not in st.session_state: st.session_state['active_tab'] = "Data"
 def set_view(view_name):
     st.session_state['active_tab'] = view_name
 
-# --- DYNAMIC CSS FOR UPLOADER ---
-# This injects red styling only if no file is uploaded
-uploader_style = ""
-if st.session_state['uploaded_file'] is None:
-    uploader_style = """
-    /* Target the Uploader Container when empty */
-    [data-testid="stFileUploader"] section {
-        border: 2px dashed #ff4b4b !important;
-        background-color: #fff0f0 !important;
-    }
-    /* Target the "Browse files" button text to make it redish to stand out */
-    [data-testid="stFileUploader"] button {
-        border-color: #ff4b4b !important;
-        color: #ff4b4b !important;
-    }
-    """
-
-# --- PROFESSIONAL CSS ---
-st.markdown(f"""
+# --- CSS STYLING ---
+st.markdown("""
     <style>
-    {uploader_style}
-    
     /* 1. FIXED HEADER (Clean & Aligned) */
-    .header-container {{
+    .header-container {
         position: fixed;
         top: 3.75rem;
         left: 0;
         width: 100%;
         background-color: #ffffff;
         z-index: 999;
-        padding: 15px 40px; /* Reduced vertical padding */
+        padding: 15px 40px;
         border-bottom: 1px solid #e0e0e0;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-        height: 60px; /* Slimmer header */
+        height: 70px; /* Reduced height since subtitle is gone */
         display: flex;
         align-items: center;
-        /* Ensure text isn't hidden behind sidebar */
         padding-left: 22rem; 
-    }}
-    .header-title {{
-        font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; /* Matched font */
+    }
+    .header-title {
+        font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; /* Same as body */
         font-size: 20px;
         font-weight: 700;
         color: #212529;
         margin: 0;
-    }}
+    }
     
-    /* 2. MAIN CONTENT PADDING */
-    .block-container {{
+    /* 2. PUSH MAIN CONTENT DOWN */
+    .block-container {
         padding-top: 9rem !important;
-    }}
+    }
 
-    /* 3. SIDEBAR ALIGNMENT */
-    [data-testid="stSidebar"] {{
-        background-color: #f8f9fa;
-        border-right: 1px solid #dee2e6;
-        padding-top: 1rem; /* Aligns with header */
-    }}
+    /* 3. SIDEBAR ALIGNMENT (Push Up) */
+    section[data-testid="stSidebar"] > div:first-child {
+        padding-top: 1rem; /* Aligns with the header */
+    }
 
-    /* 4. TABS FILL WIDTH */
-    .stTabs [data-baseweb="tab-list"] {{
+    /* 4. RED UPLOAD BUTTON (CSS Hack) */
+    /* Target the button inside the uploader when it's in 'secondary' state (default) */
+    [data-testid="stFileUploader"] button {
+        border-color: #ff4b4b;
+        color: #ff4b4b;
+    }
+    [data-testid="stFileUploader"] button:hover {
+        border-color: #ff4b4b;
+        color: white;
+        background-color: #ff4b4b;
+    }
+
+    /* 5. TABS */
+    .stTabs [data-baseweb="tab-list"] {
         display: flex;
         width: 100%;
         gap: 2px;
         background-color: #e9ecef;
         padding: 4px;
         border-radius: 6px;
-    }}
-    .stTabs [data-baseweb="tab"] {{
+    }
+    .stTabs [data-baseweb="tab"] {
         flex-grow: 1;
         justify-content: center;
         height: 40px;
@@ -102,39 +91,37 @@ st.markdown(f"""
         font-weight: 600;
         color: #495057;
         border: none;
-    }}
-    .stTabs [aria-selected="true"] {{
+    }
+    .stTabs [aria-selected="true"] {
         background-color: #ffffff !important;
         color: #0d6efd !important;
         box-shadow: 0 1px 2px rgba(0,0,0,0.1);
-    }}
+    }
 
-    /* 5. METRIC CARDS */
-    .metric-card {{
+    /* 6. METRIC CARDS */
+    .metric-card {
         background-color: white;
         border: 1px solid #e9ecef;
         border-radius: 8px;
         padding: 20px;
         text-align: center;
         box-shadow: 0 2px 4px rgba(0,0,0,0.02);
-    }}
-    .metric-label {{
+    }
+    .metric-label {
         font-size: 10px;
         font-weight: 700;
         text-transform: uppercase;
         color: #adb5bd;
         margin-bottom: 5px;
         letter-spacing: 0.5px;
-    }}
-    .metric-value {{
+    }
+    .metric-value {
         font-size: 20px;
         font-weight: 700;
         color: #212529;
-    }}
+    }
 
-    @media (max-width: 992px) {{
-        .header-container {{ padding-left: 60px; }}
-    }}
+    h1, h2, h3 { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #212529; }
     </style>
     
     <div class="header-container">
@@ -143,15 +130,28 @@ st.markdown(f"""
     """, unsafe_allow_html=True)
 
 # --- HELPER FUNCTIONS ---
-def preprocess_data(df, selected_columns):
+def preprocess_data(df, selected_columns, categorical_cols):
+    """
+    Handles numeric and categorical data properly.
+    """
     data = df[selected_columns].copy()
     data = data.dropna()
+    
+    # 1. One-Hot Encode user-defined categoricals
+    if categorical_cols:
+        # Check if selected categoricals are actually in the subset
+        valid_cats = [c for c in categorical_cols if c in data.columns]
+        if valid_cats:
+            data = pd.get_dummies(data, columns=valid_cats, drop_first=True, dtype=int)
+            
+    # 2. Label Encode remaining object columns (fallback)
     encoders = {}
     for col in data.columns:
         if data[col].dtype == 'object' or isinstance(data[col].dtype, pd.PeriodDtype):
             le = LabelEncoder()
             data[col] = le.fit_transform(data[col].astype(str))
             encoders[col] = le
+            
     return data, encoders
 
 def generate_pdf(ate, lower, upper, p_val, r2, treat, out):
@@ -182,35 +182,50 @@ def generate_pdf(ate, lower, upper, p_val, r2, treat, out):
     return pdf.output(dest='S').encode('latin-1')
 
 def run_analysis_logic(df, treatment, outcome, controls, time_col=None, date_val=None):
-    if not controls:
+    # Prepare X (Confounders)
+    # Filter columns that are NOT treatment or outcome (handles the dummy columns created by OHE)
+    X_cols = [c for c in df.columns if c not in [treatment, outcome, 'Is_Post']]
+    
+    if not X_cols:
         X = np.zeros((len(df), 1))
         features = ["No_Controls"]
     else:
-        X = df[controls]
-        features = controls
+        X = df[X_cols]
+        features = X_cols
     
     Y = df[outcome]
     
     if time_col and date_val:
         try:
-            ts = pd.to_datetime(df[time_col])
-            int_ts = pd.to_datetime(date_val)
-            df['Is_Post'] = (ts >= int_ts).astype(int)
-            T = df[treatment] * df['Is_Post']
+            # We need to access the original time column for the mask
+            # But 'df' here is already processed. We pass 'time_col' in original df logic usually.
+            # Here we assume time_col was kept or we handle the interaction differently.
+            # Simplified: We assume user handled time split or we don't have the raw time col in 'df' anymore if it was encoded.
+            # FIX: We rely on the mask created BEFORE preprocessing or recreate it if time_col is numeric.
             
-            if not controls:
-                X = pd.DataFrame({'Group': df[treatment], 'Time': df['Is_Post']})
-                features = ['Group', 'Time']
-            else:
-                X = X.copy()
-                X['Group'] = df[treatment]
-                X['Time'] = df['Is_Post']
-                features = features + ['Group', 'Time']
+            # Since preprocessing might have dropped/encoded the time column, robust approach:
+            # We assume time_col logic was handled in the 'Is_Post' creation step or T calculation.
+            # For this simplified app, we'll assume T is passed correctly or created here if possible.
+            
+            # Re-creating T based on the interaction logic requires the Time info.
+            # NOTE: In robust systems, we'd pass the 'Is_Post' mask separately.
+            # Here, we will try to find 'Is_Post' if it exists, or fail gracefully.
+            pass
         except:
             return None, None, None, None
+            
+    # For DiD, we usually construct T beforehand or handle it here. 
+    # To keep this function clean, we will calculate T *outside* and pass it, or calculate it here if 'Is_Post' exists.
+    
+    if 'Is_Post' in df.columns:
+        T = df[treatment] * df['Is_Post']
+        # Add main effects to X
+        X = pd.concat([X, df[treatment].rename("Group_Effect"), df['Is_Post'].rename("Time_Effect")], axis=1)
+        features = features + ["Group_Effect", "Time_Effect"]
     else:
         T = df[treatment]
 
+    # ML Model
     est = CausalForestDML(
         model_y=RandomForestRegressor(n_estimators=50, max_depth=6),
         model_t=RandomForestClassifier(n_estimators=50, max_depth=6),
@@ -220,6 +235,7 @@ def run_analysis_logic(df, treatment, outcome, controls, time_col=None, date_val
     
     try:
         X_df = pd.DataFrame(X, index=df.index)
+        # Ensure unique columns
         X_df.columns = [f"V{i}" for i in range(X_df.shape[1])]
         X_ols = pd.concat([T.rename("Treat"), X_df], axis=1)
         X_ols = sm.add_constant(X_ols) 
@@ -231,8 +247,6 @@ def run_analysis_logic(df, treatment, outcome, controls, time_col=None, date_val
 
 # --- SIDEBAR ---
 with st.sidebar:
-    # No Spacer needed now as padding is adjusted in CSS to align with header
-    
     # TACTICAL TABS
     tab_data, tab_logic, tab_run = st.tabs(["Data", "Logic", "Action"])
 
@@ -240,10 +254,8 @@ with st.sidebar:
     with tab_data:
         btn_type = "primary" if st.session_state['active_tab'] != "Data" else "secondary"
         st.button("Show Table View", type=btn_type, use_container_width=True, on_click=set_view, args=("Data",))
-        
-        # This uploader will be Red if empty (via CSS above)
+            
         uploaded_file = st.file_uploader("Upload CSV", type="csv")
-        
         if uploaded_file:
             st.session_state['uploaded_file'] = uploaded_file
             raw_df = pd.read_csv(uploaded_file)
@@ -273,9 +285,19 @@ with st.sidebar:
                 except:
                     int_date = st.text_input("Intervention Value")
             
+            # Exclude treatment/outcome from controls
             excl = [treat_col, out_col]
             if time_col: excl.append(time_col)
-            covs = st.multiselect("Control Variables", [c for c in cols if c not in excl])
+            possible_controls = [c for c in cols if c not in excl]
+            
+            # 1. Select Controls
+            covs = st.multiselect("Control Variables", possible_controls)
+            
+            # 2. Select Categoricals (Subset of Controls)
+            cats = []
+            if covs:
+                cats = st.multiselect("Which of these are Categorical?", covs, help="Select variables like Region, Gender, etc. to One-Hot Encode them.")
+
         else:
             st.info("Upload data first")
 
@@ -289,11 +311,27 @@ with st.sidebar:
             if st.button("RUN NEW ANALYSIS", type="primary", use_container_width=True):
                 st.session_state['active_tab'] = "Action"
                 with st.spinner("Calculating Impact..."):
-                    need = [treat_col, out_col] + covs
-                    if time_col: need.append(time_col)
-                    clean, enc = preprocess_data(raw_df, need)
                     
-                    ml, stats, X_t, T_t = run_analysis_logic(clean, treat_col, out_col, covs, time_col, int_date)
+                    # 1. Preprocess (Handling Time Logic inside dataframe prep)
+                    prep_df = raw_df.copy()
+                    
+                    # Create Is_Post mask BEFORE encoding if time exists
+                    if use_time and time_col and int_date:
+                        try:
+                            ts = pd.to_datetime(prep_df[time_col])
+                            ids = pd.to_datetime(int_date)
+                            prep_df['Is_Post'] = (ts >= ids).astype(int)
+                        except:
+                            prep_df['Is_Post'] = 0 # Fallback
+                    
+                    # Define columns to keep
+                    need = [treat_col, out_col] + covs
+                    if 'Is_Post' in prep_df.columns: need.append('Is_Post')
+                    
+                    # Preprocess (OHE)
+                    clean, enc = preprocess_data(prep_df, need, cats)
+                    
+                    ml, stats, X_t, T_t = run_analysis_logic(clean, treat_col, out_col, covs)
                     
                     if ml:
                         st.session_state['results'] = {
@@ -343,14 +381,35 @@ elif st.session_state['active_tab'] == "Logic":
         g.attr('node', fontname='Helvetica', shape='box', style='filled', color='white', fontcolor='#333')
         g.attr('edge', fontname='Helvetica', color='#adb5bd')
         
+        # Treatment & Outcome
         g.node('T', f'Intervention\n{treat_col}', fillcolor='#d1e7dd', color='#0f5132', fontcolor='#0f5132')
         g.node('O', f'Outcome\n{out_col}', fillcolor='#cfe2ff', color='#084298', fontcolor='#084298')
         g.edge('T', 'O', label=' Impact ')
         
+        # Controls (Numeric vs Categorical)
         if covs:
-            g.node('C', 'Controls', shape='ellipse', fillcolor='#fff3cd', color='#856404', fontcolor='#856404')
-            g.edge('C', 'T', style='dashed', dir='none')
-            g.edge('C', 'O', style='dashed', dir='none')
+            # Separate cats vs nums for visualization
+            cat_vars = cats
+            num_vars = [c for c in covs if c not in cats]
+            
+            if num_vars:
+                label_num = "Numeric Controls\n" + "\n".join(num_vars[:3])
+                if len(num_vars) > 3: label_num += "\n..."
+                g.node('CN', label_num, shape='ellipse', fillcolor='#fff3cd', color='#856404', fontcolor='#856404')
+                g.edge('CN', 'T', style='dashed', dir='none')
+                g.edge('CN', 'O', style='dashed', dir='none')
+                
+            if cat_vars:
+                label_cat = "Categorical Controls\n(One-Hot Encoded)\n" + "\n".join(cat_vars[:3])
+                if len(cat_vars) > 3: label_cat += "\n..."
+                g.node('CC', label_cat, shape='ellipse', fillcolor='#f8d7da', color='#842029', fontcolor='#842029')
+                g.edge('CC', 'T', style='dashed', dir='none')
+                g.edge('CC', 'O', style='dashed', dir='none')
+
+        # Time Logic
+        if use_time and time_col:
+             g.node('Time', f'Time Trigger\n{time_col}\n>= {int_date}', shape='note', fillcolor='#e2e3e5', color='#383d41', fontcolor='#383d41')
+             g.edge('Time', 'T', label='activates')
             
         st.graphviz_chart(g)
     else:
