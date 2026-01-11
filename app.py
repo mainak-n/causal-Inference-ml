@@ -69,7 +69,7 @@ st.markdown("""
         letter-spacing: 0.5px;
     }
     .metric-value {
-        font-size: 20px; /* Reduced from 26px */
+        font-size: 20px;
         font-weight: 700;
         color: #212529;
     }
@@ -172,18 +172,16 @@ def run_analysis_logic(df, treatment, outcome, controls, time_col=None, date_val
 # --- SESSION STATE ---
 if 'results' not in st.session_state: st.session_state['results'] = None
 if 'uploaded_file' not in st.session_state: st.session_state['uploaded_file'] = None
-# We add a state variable to track the active tab based on sidebar interaction
 if 'active_tab' not in st.session_state: st.session_state['active_tab'] = "Data"
 
 # --- SIDEBAR ---
 with st.sidebar:
     st.header("Configuration")
     
-    # TACTICAL TABS (Data, Logic, Action)
-    # We use these tabs to control the MAIN view
+    # TACTICAL TABS
     tab_data, tab_logic, tab_run = st.tabs(["Data", "Logic", "Action"])
 
-    # 1. DATA TAB CONTROLS
+    # 1. DATA TAB
     with tab_data:
         uploaded_file = st.file_uploader("Upload CSV", type="csv")
         if uploaded_file:
@@ -191,16 +189,16 @@ with st.sidebar:
             raw_df = pd.read_csv(uploaded_file)
             cols = raw_df.columns.tolist()
             st.success(f"Loaded {len(raw_df)} rows")
-            st.session_state['active_tab'] = "Data"
+            
+            # Button to force view switch (since tabs don't auto-switch state)
+            if st.button("Show Table View"):
+                st.session_state['active_tab'] = "Data"
         else:
             cols = []
 
-    # 2. LOGIC TAB CONTROLS
+    # 2. LOGIC TAB
     with tab_logic:
         if uploaded_file:
-            # Set active tab to Logic when interacting here
-            st.session_state['active_tab'] = "Logic"
-            
             treat_col = st.selectbox("Treatment Column", cols, index=0)
             out_col = st.selectbox("Outcome Column", cols, index=1 if len(cols)>1 else 0)
             
@@ -219,17 +217,19 @@ with st.sidebar:
             excl = [treat_col, out_col]
             if time_col: excl.append(time_col)
             covs = st.multiselect("Control Variables", [c for c in cols if c not in excl])
+            
+            if st.button("Visualize Logic Flow"):
+                st.session_state['active_tab'] = "Logic"
         else:
             st.info("Upload data first")
 
-    # 3. ACTION TAB CONTROLS
+    # 3. ACTION TAB
     with tab_run:
         if uploaded_file:
-            st.session_state['active_tab'] = "Action"
-            
             run_btn = st.button("RUN ANALYSIS", type="primary", use_container_width=True)
             
             if run_btn:
+                st.session_state['active_tab'] = "Action"
                 with st.spinner("Calculating Impact..."):
                     need = [treat_col, out_col] + covs
                     if time_col: need.append(time_col)
@@ -275,6 +275,7 @@ st.title("Causal Inference Portal")
 if st.session_state['active_tab'] == "Data":
     if st.session_state['uploaded_file']:
         st.subheader("Data Inspector")
+        #  - Optional context, though table is clear
         st.dataframe(raw_df.head(100), use_container_width=True)
     else:
         st.info("Upload a CSV file in the sidebar Data tab.")
