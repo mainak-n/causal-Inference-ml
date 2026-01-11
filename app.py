@@ -51,7 +51,7 @@ st.markdown("""
         border-right: 1px solid #dee2e6;
     }
 
-    /* 3. METRIC CARDS (SMALLER FONT) */
+    /* 3. METRIC CARDS */
     .metric-card {
         background-color: white;
         border: 1px solid #e9ecef;
@@ -183,21 +183,27 @@ with st.sidebar:
 
     # 1. DATA TAB
     with tab_data:
+        # Smart Button: Red (Primary) if not on Data view, White (Secondary) if on Data view
+        btn_type = "primary" if st.session_state['active_tab'] != "Data" else "secondary"
+        if st.button("Show Table View", type=btn_type, use_container_width=True):
+            st.session_state['active_tab'] = "Data"
+            
         uploaded_file = st.file_uploader("Upload CSV", type="csv")
         if uploaded_file:
             st.session_state['uploaded_file'] = uploaded_file
             raw_df = pd.read_csv(uploaded_file)
             cols = raw_df.columns.tolist()
             st.success(f"Loaded {len(raw_df)} rows")
-            
-            # Button to force view switch (since tabs don't auto-switch state)
-            if st.button("Show Table View"):
-                st.session_state['active_tab'] = "Data"
         else:
             cols = []
 
     # 2. LOGIC TAB
     with tab_logic:
+        # Smart Button: Red (Primary) if not on Logic view, White (Secondary) if on Logic view
+        btn_type = "primary" if st.session_state['active_tab'] != "Logic" else "secondary"
+        if st.button("Visualize Logic Flow", type=btn_type, use_container_width=True):
+            st.session_state['active_tab'] = "Logic"
+            
         if uploaded_file:
             treat_col = st.selectbox("Treatment Column", cols, index=0)
             out_col = st.selectbox("Outcome Column", cols, index=1 if len(cols)>1 else 0)
@@ -217,18 +223,14 @@ with st.sidebar:
             excl = [treat_col, out_col]
             if time_col: excl.append(time_col)
             covs = st.multiselect("Control Variables", [c for c in cols if c not in excl])
-            
-            if st.button("Visualize Logic Flow"):
-                st.session_state['active_tab'] = "Logic"
         else:
             st.info("Upload data first")
 
     # 3. ACTION TAB
     with tab_run:
         if uploaded_file:
-            run_btn = st.button("RUN ANALYSIS", type="primary", use_container_width=True)
-            
-            if run_btn:
+            # Main Run Button
+            if st.button("RUN ANALYSIS", type="primary", use_container_width=True):
                 st.session_state['active_tab'] = "Action"
                 with st.spinner("Calculating Impact..."):
                     need = [treat_col, out_col] + covs
@@ -243,10 +245,9 @@ with st.sidebar:
                             'treat': treat_col, 'out': out_col
                         }
             
+            # PDF Download (No lines before it)
             if st.session_state['results']:
                 res = st.session_state['results']
-                
-                # Safe stats extraction
                 ate = res['ml'].ate(res['X'])
                 l, u = res['ml'].ate_interval(res['X'])
                 
@@ -259,7 +260,7 @@ with st.sidebar:
                 
                 pdf_data = generate_pdf(ate, l, u, p, r2, res['treat'], res['out'])
                 
-                st.markdown("---")
+                # Removed st.markdown("---") line
                 st.download_button(
                     label="DOWNLOAD PDF REPORT",
                     data=pdf_data,
@@ -271,16 +272,15 @@ with st.sidebar:
 # --- MAIN PAGE RENDERING ---
 st.title("Causal Inference Portal")
 
-# VIEW 1: DATA (TABLE ONLY)
+# VIEW 1: DATA
 if st.session_state['active_tab'] == "Data":
     if st.session_state['uploaded_file']:
         st.subheader("Data Inspector")
-        #  - Optional context, though table is clear
         st.dataframe(raw_df.head(100), use_container_width=True)
     else:
         st.info("Upload a CSV file in the sidebar Data tab.")
 
-# VIEW 2: LOGIC (FLOWCHART ONLY)
+# VIEW 2: LOGIC
 elif st.session_state['active_tab'] == "Logic":
     if st.session_state['uploaded_file']:
         st.subheader("Logic Visualization")
@@ -303,7 +303,7 @@ elif st.session_state['active_tab'] == "Logic":
     else:
         st.warning("Upload data first.")
 
-# VIEW 3: ACTION (RESULTS ONLY)
+# VIEW 3: ACTION
 elif st.session_state['active_tab'] == "Action":
     if st.session_state['results']:
         res = st.session_state['results']
