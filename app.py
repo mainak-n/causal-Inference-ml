@@ -10,6 +10,7 @@ from fpdf import FPDF
 import graphviz
 from datetime import datetime
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates  # Added for PDF chart formatting
 import tempfile
 import os
 import textwrap
@@ -327,16 +328,16 @@ def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist, g
         plot_df = df.copy()
         time_c = graph_config['time_col']
         
-        # Ensure date format for plotting
+        # Ensure date format for plotting using dayfirst=True
         try:
-            plot_df[time_c] = pd.to_datetime(plot_df[time_c])
+            plot_df[time_c] = pd.to_datetime(plot_df[time_c], dayfirst=True)
         except:
             pass # Keep as is if conversion fails
             
         # Aggregate
         trend = plot_df.groupby([time_c, treat])[out].mean().reset_index()
         
-        # Plot using standard Matplotlib (since we can't embed Plotly in FPDF)
+        # Plot using standard Matplotlib
         # Treated
         treated_data = trend[trend[treat] == 1]
         plt.plot(treated_data[time_c], treated_data[out], label='Treated', color='#28a745', marker='.', linewidth=2)
@@ -350,6 +351,10 @@ def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist, g
         plt.ylabel(out, fontsize=8)
         plt.legend(fontsize=8)
         plt.xticks(fontsize=7, rotation=45)
+        
+        # --- FIX: Set Date Format for PDF Chart ---
+        plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%d-%m-%Y'))
+        
         plt.yticks(fontsize=7)
         plt.grid(color='#f0f0f0', linestyle='--')
         plt.tight_layout()
@@ -412,7 +417,8 @@ def run_analysis_logic(df, treatment, outcome, controls, time_col=None):
     # 1. Feature Engineering (For ML controls)
     if time_col and time_col in df.columns:
         try:
-            df[time_col] = pd.to_datetime(df[time_col])
+            # FIX: Ensure proper date parsing with dayfirst
+            df[time_col] = pd.to_datetime(df[time_col], dayfirst=True)
             df['Month'] = df[time_col].dt.month
             df['DayOfWeek'] = df[time_col].dt.dayofweek
             df['Is_Weekend'] = (df['DayOfWeek'] >= 5).astype(int)
@@ -534,15 +540,17 @@ with st.sidebar:
             if use_time:
                 time_col = st.selectbox("Date Column", cols)
                 try:
-                    # Fix: Ensure date conversion for Date Input
+                    # Fix: Ensure date conversion for Date Input with dayfirst=True
                     if raw_df[time_col].dtype == 'object':
-                         temp_dates = pd.to_datetime(raw_df[time_col])
+                         temp_dates = pd.to_datetime(raw_df[time_col], dayfirst=True)
                     else:
                          temp_dates = raw_df[time_col]
                          
                     min_d = temp_dates.min().date()
                     max_d = temp_dates.max().date()
                     default_d = min_d + (max_d - min_d) // 2
+                    
+                    # --- FIX: Set format to DD/MM/YYYY in sidebar ---
                     int_date = st.date_input("Intervention Date", value=default_d, min_value=min_d, max_value=max_d, format="DD/MM/YYYY")
                 except:
                     int_date = st.text_input("Intervention Value")
@@ -573,16 +581,18 @@ with st.sidebar:
                     with st.spinner("Calculating Impact..."):
                         prep_df = raw_df.copy()
                         
-                        # --- 1970 FIX: CONVERT TO DATETIME IMMEDIATELY ---
+                        # --- 1970 FIX & DD-MM-YYYY FIX ---
                         if use_time and time_col:
                             try:
-                                prep_df[time_col] = pd.to_datetime(prep_df[time_col])
+                                # Ensure parsing respects DD-MM-YYYY
+                                prep_df[time_col] = pd.to_datetime(prep_df[time_col], dayfirst=True)
                             except:
-                                pass # Let it fail later if critical
+                                pass 
 
                         # Handle DiD Logic
                         if use_time and time_col and int_date:
                             try:
+                                # Ensure parsing respects DD-MM-YYYY
                                 ids = pd.to_datetime(int_date, dayfirst=True)
                                 prep_df['Is_Post'] = (prep_df[time_col] >= ids).astype(int)
                             except:
@@ -682,7 +692,7 @@ if st.session_state['active_tab'] == "Data":
         """)
         st.markdown("""
         <div style="margin-top: 20px; color: #31333F; line-height: 1.8;">
-        1. <b>Time: DD-MM-YYYY</b>  (For time-based analysis.)<br>
+        1. <b>Time Format: DD-MM-YYYY</b>  (Ensure CSV dates match this format.)<br>
         2. <b>Treatment Column:</b> 0 or 1 (Who got the intervention?)<br>
         3. <b>Outcome Column:</b> Numeric (Sales, clicks, retention)<br>
         4. <b>Control Variables:</b> User attributes (Age, Region, etc.)
@@ -777,7 +787,7 @@ elif st.session_state['active_tab'] == "Action":
                  # Re-fetch the original time column from raw_df to avoid preprocessing issues
                  t_c = res['graph_config']['time_col']
                  try:
-                     plot_df[t_c] = pd.to_datetime(raw_df[t_c])
+                     plot_df[t_c] = pd.to_datetime(raw_df[t_c], dayfirst=True) # Ensure parsing
                  except:
                      plot_df[t_c] = raw_df[t_c]
                  
