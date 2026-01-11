@@ -12,6 +12,7 @@ from datetime import datetime
 import matplotlib.pyplot as plt
 import tempfile
 import os
+import textwrap
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
@@ -61,17 +62,13 @@ css = """
         padding-top: 3rem !important;
         padding-bottom: 5rem;
     }
-    
-    /* 3. SIDEBAR ALIGNMENT */
     section[data-testid="stSidebar"] > div:first-child {
         padding-top: 0rem;
     }
     [data-testid="stSidebarNav"] { display: none; }
-    
-    /* Pull tabs up higher */
     .stTabs { margin-top: -30px; } 
 
-    /* 4. TABS STYLE */
+    /* 3. TABS STYLE */
     .stTabs [data-baseweb="tab-list"] {
         display: flex;
         width: 100%;
@@ -97,7 +94,7 @@ css = """
         box-shadow: 0 1px 2px rgba(0,0,0,0.1);
     }
 
-    /* 5. MAIN INFO BOX */
+    /* 4. MAIN INFO BOX */
     .main-info-box {
         background-color: #ffffff;
         border: 1px solid #e0e0e0;
@@ -109,7 +106,32 @@ css = """
         box-shadow: 0 4px 12px rgba(0,0,0,0.05);
     }
     
-    /* 6. METRIC CARDS */
+    /* TABLE STYLE */
+    .example-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 14px;
+        font-family: "Source Sans Pro", sans-serif;
+        color: #333;
+        background-color: #fff;
+        border: 1px solid #e0e0e0;
+        margin-bottom: 20px;
+    }
+    .example-table th {
+        background-color: #f8f9fa;
+        color: #555;
+        font-weight: 600;
+        text-align: left;
+        padding: 12px;
+        border-bottom: 2px solid #e0e0e0;
+    }
+    .example-table td {
+        padding: 10px 12px;
+        border-bottom: 1px solid #f0f0f0;
+    }
+    .example-table tr:last-child td { border-bottom: none; }
+
+    /* 5. METRIC CARDS */
     div.metric-container {
         background-color: #ffffff;
         border: 1px solid #e0e0e0;
@@ -133,7 +155,7 @@ css = """
         color: #31333F;
     }
     
-    /* 7. INSIGHT BOX */
+    /* 6. INSIGHT BOX */
     .insight-box {
         background-color: #f8f9fa;
         border-left: 4px solid #ff4b4b;
@@ -270,8 +292,8 @@ def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist, g
         g_pdf = create_logic_graph(**graph_config)
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp_g:
             g_pdf.render(filename=tmp_g.name.replace('.png', ''), format='png', cleanup=True)
-            # Reduced size to 100 (approx 60% of original 170 width)
-            pdf.image(tmp_g.name, x=55, w=100) 
+            # Reduced size to 80 (approx 40% reduction from previous)
+            pdf.image(tmp_g.name, x=65, w=80) 
     except Exception as e:
         pdf.set_font("Arial", 'I', 8)
         pdf.cell(0, 6, "Note: To render flowchart, ensure 'graphviz' is in packages.txt", ln=True)
@@ -294,8 +316,8 @@ def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist, g
     
     with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp_p:
         plt.savefig(tmp_p.name, format="png", dpi=100)
-        # Reduced width to match flowchart style
-        pdf.image(tmp_p.name, x=55, w=100)
+        # Reduced width to match flowchart
+        pdf.image(tmp_p.name, x=65, w=80)
     pdf.ln(3)
     
     pdf.set_font("Arial", '', 8)
@@ -493,7 +515,9 @@ if st.session_state['active_tab'] == "Data":
         st.subheader("Data Inspector")
         st.dataframe(raw_df.head(100), use_container_width=True)
     else:
-        st.markdown("""
+        # Use textwrap.dedent to ensure the HTML string has NO indentation when passed to markdown
+        # This fixes the "code block" display issue
+        welcome_html = textwrap.dedent("""
         <div class="main-info-box">
             <div style="font-size: 24px; font-weight: 700; color: #31333F; margin-bottom: 15px; text-align: center;">Welcome to the Causal Inference Portal</div>
             <div style="font-size: 16px; color: #555; line-height: 1.6; margin-bottom: 25px;">
@@ -502,19 +526,19 @@ if st.session_state['active_tab'] == "Data":
             
             <div style="font-weight: 600; color: #31333F; font-size: 16px; margin-bottom: 15px;">📋 Required Data Format (CSV):</div>
             
-            <table style="width: 100%; border-collapse: collapse; font-size: 14px; margin-bottom: 20px;">
+            <table class="example-table">
                 <thead>
-                    <tr style="background-color: #f8f9fa;">
-                        <th style="padding: 10px; border-bottom: 2px solid #e0e0e0; text-align: left;">Treatment (0/1)</th>
-                        <th style="padding: 10px; border-bottom: 2px solid #e0e0e0; text-align: left;">Outcome ($)</th>
-                        <th style="padding: 10px; border-bottom: 2px solid #e0e0e0; text-align: left;">Control 1 (Age)</th>
-                        <th style="padding: 10px; border-bottom: 2px solid #e0e0e0; text-align: left;">Control 2 (Region)</th>
+                    <tr>
+                        <th>Treatment (0/1)</th>
+                        <th>Outcome ($)</th>
+                        <th>Control 1 (Age)</th>
+                        <th>Control 2 (Region)</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <tr><td style="padding: 8px; border-bottom: 1px solid #eee;">1</td><td style="padding: 8px; border-bottom: 1px solid #eee;">120.50</td><td style="padding: 8px; border-bottom: 1px solid #eee;">25</td><td style="padding: 8px; border-bottom: 1px solid #eee;">North</td></tr>
-                    <tr><td style="padding: 8px; border-bottom: 1px solid #eee;">0</td><td style="padding: 8px; border-bottom: 1px solid #eee;">85.00</td><td style="padding: 8px; border-bottom: 1px solid #eee;">32</td><td style="padding: 8px; border-bottom: 1px solid #eee;">South</td></tr>
-                    <tr><td style="padding: 8px; border-bottom: 1px solid #eee;">1</td><td style="padding: 8px; border-bottom: 1px solid #eee;">135.20</td><td style="padding: 8px; border-bottom: 1px solid #eee;">45</td><td style="padding: 8px; border-bottom: 1px solid #eee;">East</td></tr>
+                    <tr><td>1</td><td>120.50</td><td>25</td><td>North</td></tr>
+                    <tr><td>0</td><td>85.00</td><td>32</td><td>South</td></tr>
+                    <tr><td>1</td><td>135.20</td><td>45</td><td>East</td></tr>
                 </tbody>
             </table>
             
@@ -524,7 +548,8 @@ if st.session_state['active_tab'] == "Data":
                 3. <b>Control Variables:</b> User attributes (Age, Region, etc.)
             </div>
         </div>
-        """, unsafe_allow_html=True)
+        """)
+        st.markdown(welcome_html, unsafe_allow_html=True)
 
 elif st.session_state['active_tab'] == "Logic":
     if st.session_state['uploaded_file']:
