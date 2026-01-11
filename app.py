@@ -147,7 +147,7 @@ css = """
         padding: 40px;
         text-align: left;
         max-width: 800px;
-        margin: 0 auto 30px auto; /* Added margin bottom */
+        margin: 0 auto;
         box-shadow: 0 4px 12px rgba(0,0,0,0.05);
     }
     
@@ -203,6 +203,7 @@ st.markdown(css, unsafe_allow_html=True)
 
 # --- HELPER FUNCTIONS ---
 def preprocess_data(df, selected_columns, categorical_cols):
+    """Basic preprocessing: drop NaNs and One-Hot Encoding."""
     data = df[selected_columns].copy()
     data = data.dropna()
     
@@ -300,6 +301,7 @@ def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist, g
         g_pdf = create_logic_graph(**graph_config)
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp_g:
             g_pdf.render(filename=tmp_g.name.replace('.png', ''), format='png', cleanup=True)
+            # Reduced size to 80
             pdf.image(tmp_g.name, x=65, w=80) 
     except Exception as e:
         pdf.set_font("Arial", 'I', 8)
@@ -351,32 +353,86 @@ def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist, g
         
     return pdf.output(dest='S').encode('latin-1')
 
-def run_analysis_logic(df, treatment, outcome, controls):
-    X_cols = [c for c in df.columns if c not in [treatment, outcome, 'Is_Post']]
+def run_analysis_logic(df, treatment, outcome, controls, time_col=None):
+    """
+    Robust logic for handling Causal Inference.
+    Features:
+    1. Automatic Time Feature Engineering (Month, Day, Weekend).
+    2. Lagged Outcomes (Autoregressive features).
+    3. Interaction Terms for Difference-in-Differences.
+    4. Robust RandomForest Hyperparameters.
+    """
     
-    if not X_cols:
+    # 1. Feature Engineering: Time Components & Lags
+    if time_col and time_col in df.columns:
+        # Convert to datetime
+        try:
+            df[time_col] = pd.to_datetime(df[time_col])
+            
+            # Extract basic calendar features
+            df['Month'] = df[time_col].dt.month
+            df['DayOfWeek'] = df[time_col].dt.dayofweek
+            df['Is_Weekend'] = (df['DayOfWeek'] >= 5).astype(int)
+            
+            # Sort by date for lagging
+            df = df.sort_values(by=time_col)
+            
+            # 2. Lagged Outcome: Controls for momentum/autocorrelation
+            df['Lagged_Outcome'] = df[outcome].shift(1).fillna(0)
+            
+            # Add to list of controls (if not already there)
+            new_feats = ['Month', 'DayOfWeek', 'Is_Weekend', 'Lagged_Outcome']
+            for f in new_feats:
+                if f not in controls:
+                    controls.append(f)
+                    
+        except Exception as e:
+            st.warning(f"Time Feature Engineering Failed: {e}")
+
+    # Drop any NaNs created by lagging or existing in data
+    df = df.dropna()
+    
+    # Define X (Controls)
+    # Ensure we only pick columns that actually exist in the dataframe
+    valid_controls = [c for c in controls if c in df.columns]
+    
+    if not valid_controls:
         X = np.zeros((len(df), 1))
         features = ["No_Controls"]
     else:
-        X = df[X_cols]
-        features = X_cols
+        X = df[valid_controls]
+        features = valid_controls
     
     Y = df[outcome]
     
+    # 3. Enhanced Interaction Logic (Difference-in-Differences)
     if 'Is_Post' in df.columns:
-        T = df[treatment] * df['Is_Post']
-        X = pd.concat([X, df[treatment].rename("Group_Effect"), df['Is_Post'].rename("Time_Effect")], axis=1)
-        features = features + ["Group_Effect", "Time_Effect"]
+        # Interaction is the REAL treatment in DiD
+        T = df[treatment] * df['Is_Post'] 
+        
+        # We must control for the Main Effects separately:
+        # 1. Group Effect (Being in Treatment Group vs Control Group)
+        # 2. Time Effect (Being Post-Intervention vs Pre-Intervention)
+        X = pd.concat([X, 
+                       df[treatment].rename("Group_Main_Effect"), 
+                       df['Is_Post'].rename("Time_Main_Effect")], axis=1)
+        
+        features = features + ["Group_Main_Effect", "Time_Main_Effect"]
     else:
+        # Standard Cross-Sectional case
         T = df[treatment]
 
+    # 4. Upgraded Model (More Trees = Better Stability)
+    # Using deeper trees and more estimators to capture complex time dynamics
     est = CausalForestDML(
-        model_y=RandomForestRegressor(n_estimators=50, max_depth=6),
-        model_t=RandomForestClassifier(n_estimators=50, max_depth=6),
-        discrete_treatment=True
+        model_y=RandomForestRegressor(n_estimators=200, max_depth=10, min_samples_leaf=5),
+        model_t=RandomForestClassifier(n_estimators=200, max_depth=10, min_samples_leaf=5),
+        discrete_treatment=True,
+        n_estimators=100
     )
     est.fit(Y, T, X=X)
     
+    # --- Statsmodels Validation (OLS) for simplified stats ---
     try:
         X_df = pd.DataFrame(X, index=df.index)
         X_df.columns = [f"V{i}" for i in range(X_df.shape[1])]
@@ -386,6 +442,7 @@ def run_analysis_logic(df, treatment, outcome, controls):
     except:
         ols = None
     
+    # Feature Importance
     effects = est.effect(X)
     interpreter = RandomForestRegressor(max_depth=4)
     interpreter.fit(X, effects)
@@ -467,6 +524,8 @@ with st.sidebar:
                 try:
                     with st.spinner("Calculating Impact..."):
                         prep_df = raw_df.copy()
+                        
+                        # Handle Date Conversion for DiD Logic
                         if use_time and time_col and int_date:
                             try:
                                 ts = pd.to_datetime(prep_df[time_col])
@@ -476,10 +535,17 @@ with st.sidebar:
                                 prep_df['Is_Post'] = 0
                         
                         need = [treat_col, out_col] + covs
+                        if use_time and time_col: need.append(time_col) # Keep date column for feature eng
                         if 'Is_Post' in prep_df.columns: need.append('Is_Post')
                         
+                        # Preprocess (One-Hot Encoding)
                         clean, enc = preprocess_data(prep_df, need, cats)
-                        ml, stats, X_t, T_t, feats = run_analysis_logic(clean, treat_col, out_col, covs)
+                        
+                        # Determine Time Column for Logic
+                        t_col_arg = time_col if use_time else None
+                        
+                        # RUN ROBUST ANALYSIS
+                        ml, stats, X_t, T_t, feats = run_analysis_logic(clean, treat_col, out_col, covs, time_col=t_col_arg)
                         
                         if ml:
                             st.session_state['results'] = {
@@ -514,7 +580,6 @@ with st.sidebar:
                 
                 impact_dist = res['ml'].effect(res['X'])
                 
-                # Get Filename safely
                 fname = st.session_state['uploaded_file'].name
                 
                 pdf_data = generate_pdf(ate, l, u, p, r2, res['treat'], res['out'], res['feats'], pd.Series(impact_dist), res['graph_config'], fname)
@@ -547,7 +612,7 @@ if st.session_state['active_tab'] == "Data":
         # Heading OUTSIDE box
         st.markdown("""<div style="font-weight: 600; color: #31333F; font-size: 16px; margin-bottom: 10px; margin-top: 20px;">📋 Required Data Format (CSV):</div>""", unsafe_allow_html=True)
         
-        # Markdown Table (Native Streamlit)
+        # Standard Markdown Table
         st.markdown("""
         | Date (Opt) | Treatment (0/1) | Outcome ($) | Control 1 (Age) | Control 2 (Region) |
         | :--- | :--- | :--- | :--- | :--- |
