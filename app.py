@@ -31,12 +31,12 @@ def reset_analysis():
 # --- CSS STYLING ---
 css = """
     <style>
-    /* 1. FIXED HEADER (Centered) */
+    /* 1. FIXED HEADER (Centered relative to Main Content) */
     .header-container {
         position: fixed;
         top: 3.75rem;
-        left: 0;
-        width: 100%;
+        left: 21rem; /* Starts after the sidebar */
+        width: calc(100% - 21rem); /* Spans the remaining width */
         background-color: #ffffff;
         z-index: 999;
         padding: 0px 40px;
@@ -44,7 +44,7 @@ css = """
         height: 60px;
         display: flex;
         align-items: center;
-        justify-content: center; /* Centered Title */
+        justify-content: center; /* Centers content within the remaining space */
     }
     .header-title {
         font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
@@ -59,13 +59,16 @@ css = """
         padding-top: 8rem !important;
     }
 
-    /* 3. SIDEBAR ALIGNMENT (Aggressive Lift) */
-    /* Negative margin to pull tabs up to the very top */
+    /* 3. SIDEBAR ALIGNMENT (Aggressive Lift using Negative Margin) */
     section[data-testid="stSidebar"] > div:first-child {
         padding-top: 0rem;
     }
     [data-testid="stSidebarNav"] {
-        display: none; /* Hide default nav if present */
+        display: none;
+    }
+    /* Moves the tabs up by 20px to hit the ceiling */
+    .stTabs {
+        margin-top: -20px;
     }
 
     /* 4. TABS */
@@ -94,38 +97,21 @@ css = """
         box-shadow: 0 1px 2px rgba(0,0,0,0.1);
     }
 
-    /* 5. METRIC CARDS */
-    .metric-card {
-        background-color: white;
-        border: 1px solid #e9ecef;
-        border-radius: 8px;
-        padding: 20px;
-        text-align: center;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.02);
-    }
-    .metric-label {
-        font-size: 10px;
-        font-weight: 700;
-        text-transform: uppercase;
-        color: #adb5bd;
-        margin-bottom: 5px;
-        letter-spacing: 0.5px;
-    }
-    .metric-value {
-        font-size: 20px;
-        font-weight: 700;
-        color: #212529;
-    }
-    
-    /* 6. INSIGHT BOX */
-    .insight-box {
+    /* 5. INFO BOX (Help Text) */
+    .info-box {
         background-color: #f8f9fa;
-        border-left: 4px solid #0d6efd;
+        border: 1px solid #dee2e6;
+        border-radius: 6px;
         padding: 15px;
-        border-radius: 4px;
-        margin-bottom: 20px;
-        font-size: 14px;
+        font-size: 13px;
+        color: #6c757d;
+        margin-top: 20px;
+    }
+    .info-title {
+        font-weight: 700;
         color: #495057;
+        margin-bottom: 5px;
+        font-size: 14px;
     }
 
     h1, h2, h3 { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #212529; }
@@ -182,14 +168,12 @@ def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist):
     pdf = FPDF()
     pdf.add_page()
     
-    # Title
     pdf.set_font("Arial", 'B', 20)
     pdf.cell(0, 20, "Causal Analysis Report", ln=True, align='C')
     pdf.set_font("Arial", '', 10)
     pdf.cell(0, 10, f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M')}", ln=True, align='C')
     pdf.ln(10)
     
-    # Section 1: Executive Summary
     pdf.set_font("Arial", 'B', 14)
     pdf.set_fill_color(240, 240, 240)
     pdf.cell(0, 10, "1. Executive Summary", ln=True, fill=True)
@@ -200,7 +184,6 @@ def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist):
     pdf.cell(0, 8, f"Target Outcome: {out}", ln=True)
     pdf.ln(2)
     
-    # Metrics Box
     pdf.set_font("Arial", 'B', 12)
     pdf.cell(95, 10, f"Average Impact (ATE): {ate:.4f}", border=1)
     pdf.cell(95, 10, f"Model Fit (R2): {r2:.4f}", border=1, ln=True)
@@ -210,25 +193,22 @@ def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist):
     pdf.cell(95, 10, f"95% CI: [{lower:.4f}, {upper:.4f}]", border=1, ln=True)
     pdf.ln(10)
     
-    # Section 2: Impact Distribution Stats
     pdf.set_font("Arial", 'B', 14)
     pdf.cell(0, 10, "2. Impact Distribution", ln=True, fill=True)
     pdf.ln(2)
     
     pdf.set_font("Arial", '', 11)
-    # Calculate stats from the passed series
     min_imp = impact_dist.min()
     max_imp = impact_dist.max()
     med_imp = impact_dist.median()
     std_imp = impact_dist.std()
     
-    pdf.cell(0, 8, f"Minimum Impact observed: {min_imp:.4f}", ln=True)
-    pdf.cell(0, 8, f"Maximum Impact observed: {max_imp:.4f}", ln=True)
+    pdf.cell(0, 8, f"Minimum Impact: {min_imp:.4f}", ln=True)
+    pdf.cell(0, 8, f"Maximum Impact: {max_imp:.4f}", ln=True)
     pdf.cell(0, 8, f"Median Impact: {med_imp:.4f}", ln=True)
     pdf.cell(0, 8, f"Standard Deviation: {std_imp:.4f}", ln=True)
     pdf.ln(10)
 
-    # Section 3: Top Drivers
     pdf.set_font("Arial", 'B', 14)
     pdf.cell(0, 10, "3. Top Drivers of Impact", ln=True, fill=True)
     pdf.ln(2)
@@ -237,19 +217,15 @@ def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist):
     if not feats.empty:
         pdf.cell(0, 8, "The following variables had the highest influence on the outcome:", ln=True)
         pdf.ln(2)
-        
-        # Table Header
         pdf.set_font("Arial", 'B', 10)
         pdf.cell(140, 8, "Variable Name", border=1)
         pdf.cell(50, 8, "Importance Score", border=1, ln=True)
-        
-        # Table Rows (Top 10)
         pdf.set_font("Arial", '', 10)
         for index, row in feats.head(10).iterrows():
             pdf.cell(140, 8, str(row['Feature']), border=1)
             pdf.cell(50, 8, f"{row['Importance']:.4f}", border=1, ln=True)
     else:
-        pdf.cell(0, 8, "No control variables were used, so driver analysis is not available.", ln=True)
+        pdf.cell(0, 8, "No control variables were used.", ln=True)
         
     return pdf.output(dest='S').encode('latin-1')
 
@@ -300,16 +276,35 @@ def run_analysis_logic(df, treatment, outcome, controls):
 
 # --- SIDEBAR ---
 with st.sidebar:
-    # SPACER: Reduced to pull tabs up
+    # SPACER: Reduced for aggressive lift
     st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
     
     tab_data, tab_logic, tab_run = st.tabs(["Data", "Logic", "Action"])
 
+    # 1. DATA TAB
     with tab_data:
         btn_type = "primary" if st.session_state['active_tab'] != "Data" else "secondary"
         st.button("Show Table View", type=btn_type, use_container_width=True, on_click=set_view, args=("Data",))
             
         uploaded_file = st.file_uploader("Upload CSV", type="csv")
+        
+        # HELP INFO WHEN EMPTY
+        if not uploaded_file:
+            st.markdown("""
+            <div class="info-box">
+                <div class="info-title">👋 About this Portal</div>
+                This tool uses <b>Double Machine Learning (DML)</b> to calculate the true causal impact of an intervention, separating signal from noise.
+                <br><br>
+                <div class="info-title">📋 Required Data Format</div>
+                Your CSV should contain:
+                <ul>
+                    <li><b>Treatment Column:</b> 0 or 1 (e.g., Received Email)</li>
+                    <li><b>Outcome Column:</b> Numeric (e.g., Sales $)</li>
+                    <li><b>Confounders:</b> User attributes (Age, Location)</li>
+                </ul>
+            </div>
+            """, unsafe_allow_html=True)
+
         if uploaded_file:
             st.session_state['uploaded_file'] = uploaded_file
             raw_df = pd.read_csv(uploaded_file)
@@ -318,6 +313,7 @@ with st.sidebar:
         else:
             cols = []
 
+    # 2. LOGIC TAB
     with tab_logic:
         btn_type = "primary" if st.session_state['active_tab'] != "Logic" else "secondary"
         st.button("Visualize Logic Flow", type=btn_type, use_container_width=True, on_click=set_view, args=("Logic",))
@@ -338,14 +334,15 @@ with st.sidebar:
                 except:
                     int_date = st.text_input("Intervention Value")
             
-            st.markdown("##### Control Variables")
             t_num, t_cat = st.tabs(["123 Numerical", "Abc Categorical"])
             
             excl = [treat_col, out_col]
             if time_col: excl.append(time_col)
             available_cols = [c for c in cols if c not in excl]
             
-            # DEFAULT IS EMPTY LIST []
+            auto_num = raw_df[available_cols].select_dtypes(include=np.number).columns.tolist()
+            auto_cat = raw_df[available_cols].select_dtypes(exclude=np.number).columns.tolist()
+
             with t_num:
                 num_covs = st.multiselect("Select Numeric Controls", available_cols, default=[])
             
@@ -358,6 +355,7 @@ with st.sidebar:
         else:
             st.info("Upload data first")
 
+    # 3. ACTION TAB
     with tab_run:
         if uploaded_file:
             if st.session_state['results'] is not None:
@@ -408,7 +406,6 @@ with st.sidebar:
                     p = np.nan
                     r2 = 0.0
                 
-                # Pass feature importance and impact distribution to PDF
                 impact_dist = res['ml'].effect(res['X'])
                 pdf_data = generate_pdf(ate, l, u, p, r2, res['treat'], res['out'], res['feats'], pd.Series(impact_dist))
                 st.download_button("DOWNLOAD PDF REPORT", pdf_data, "causal_report.pdf", "application/pdf", use_container_width=True)
@@ -420,7 +417,8 @@ if st.session_state['active_tab'] == "Data":
         st.subheader("Data Inspector")
         st.dataframe(raw_df.head(100), use_container_width=True)
     else:
-        st.info("Upload a CSV file in the sidebar Data tab.")
+        # Show nothing (Sidebar info box handles the context)
+        pass
 
 elif st.session_state['active_tab'] == "Logic":
     if st.session_state['uploaded_file']:
@@ -456,7 +454,7 @@ elif st.session_state['active_tab'] == "Logic":
             
         st.graphviz_chart(g)
     else:
-        st.warning("Upload data first.")
+        pass
 
 elif st.session_state['active_tab'] == "Action":
     if st.session_state['results']:
@@ -537,4 +535,4 @@ elif st.session_state['active_tab'] == "Action":
             else:
                 st.warning("Statistical model unavailable.")
     else:
-        st.info("Configure logic and click Run Analysis in the sidebar.")
+        pass
