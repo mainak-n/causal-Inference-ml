@@ -34,52 +34,45 @@ def reset_analysis():
 # --- CSS STYLING ---
 css = """
     <style>
-    /* 1. STICKY HEADER (Dynamic Centering) */
+    /* 1. FIXED HEADER */
     .header-container {
         position: sticky;
-        top: 2rem; /* Sticks below the standard Streamlit decoration bar */
-        z-index: 800; /* High enough to sit over content, low enough for dropdowns */
+        top: 2rem;
+        z-index: 800;
         background-color: white;
-        
-        /* Extend to edges of the container */
         margin-left: -5rem;
         margin-right: -5rem;
         padding: 1rem 5rem;
-        
         border-bottom: 1px solid #f0f2f6;
         text-align: center;
         margin-bottom: 2rem;
     }
-    
-    /* Font Matching "Data Inspector" (Streamlit Subheader style) */
     .header-title {
         font-family: "Source Sans Pro", sans-serif;
         font-weight: 600;
-        font-size: 1.5rem; /* ~24px */
+        font-size: 1.5rem;
         color: rgb(49, 51, 63);
         margin: 0;
         line-height: 1.2;
     }
     
-    /* 2. ADJUST TOP PADDING FOR CONTENT */
+    /* 2. LAYOUT ADJUSTMENTS */
     .block-container {
-        padding-top: 3rem !important; /* Reduced since we use sticky, not fixed */
+        padding-top: 3rem !important;
         padding-bottom: 5rem;
     }
-
-    /* 3. SIDEBAR ALIGNMENT */
     section[data-testid="stSidebar"] > div:first-child {
         padding-top: 0rem;
     }
     [data-testid="stSidebarNav"] { display: none; }
     .stTabs { margin-top: -20px; }
 
-    /* 4. TABS STYLE */
+    /* 3. TABS */
     .stTabs [data-baseweb="tab-list"] {
         display: flex;
         width: 100%;
         gap: 2px;
-        background-color: #f0f2f6; /* Lighter gray */
+        background-color: #f0f2f6;
         padding: 4px;
         border-radius: 6px;
     }
@@ -96,11 +89,11 @@ css = """
     }
     .stTabs [aria-selected="true"] {
         background-color: #ffffff !important;
-        color: #ff4b4b !important; /* Streamlit Red/Primary */
+        color: #ff4b4b !important;
         box-shadow: 0 1px 2px rgba(0,0,0,0.1);
     }
 
-    /* 5. MAIN PAGE INFO BOX */
+    /* 4. MAIN INFO BOX */
     .main-info-box {
         background-color: #ffffff;
         border: 1px solid #e0e0e0;
@@ -111,10 +104,44 @@ css = """
         margin: 0 auto;
         box-shadow: 0 4px 12px rgba(0,0,0,0.05);
     }
-    .info-icon { font-size: 40px; margin-bottom: 20px; }
     .info-header { font-size: 24px; font-weight: 700; color: #31333F; margin-bottom: 15px; }
     .info-text { font-size: 16px; color: #6c757d; line-height: 1.6; }
-    .info-list { text-align: left; display: inline-block; margin-top: 20px; color: #31333F; }
+
+    /* 5. METRIC CARDS (Restored) */
+    div.metric-container {
+        background-color: #ffffff;
+        border: 1px solid #e0e0e0;
+        border-radius: 8px;
+        padding: 20px;
+        text-align: center;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        height: 100%;
+    }
+    .metric-label {
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        color: #9aa0a6;
+        letter-spacing: 0.5px;
+        margin-bottom: 8px;
+    }
+    .metric-value {
+        font-size: 22px;
+        font-weight: 700;
+        color: #31333F;
+    }
+    
+    /* 6. INSIGHT BOX */
+    .insight-box {
+        background-color: #f8f9fa;
+        border-left: 4px solid #ff4b4b;
+        padding: 15px;
+        border-radius: 4px;
+        margin-bottom: 25px;
+        font-size: 15px;
+        color: #31333F;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
 
     /* General */
     h1, h2, h3 { font-family: "Source Sans Pro", sans-serif; }
@@ -167,7 +194,42 @@ def preprocess_data(df, selected_columns, categorical_cols):
             
     return data, encoders
 
-def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist):
+def create_logic_graph(treat, out, covs, cats, use_time, time_col, int_date):
+    g = graphviz.Digraph()
+    g.attr(rankdir='LR', bgcolor='white', margin='0.2')
+    g.attr('node', fontname='Helvetica', shape='box', style='rounded,filled', color='white', fontcolor='#333')
+    g.attr('edge', fontname='Helvetica', color='#adb5bd')
+    
+    g.node('T', f'Intervention\n{treat}', fillcolor='#d1e7dd', color='#0f5132', fontcolor='#0f5132')
+    g.node('O', f'Outcome\n{out}', fillcolor='#cfe2ff', color='#084298', fontcolor='#084298')
+    g.edge('T', 'O', label=' Impact ', penwidth='1.5')
+    
+    if covs:
+        vis_cats = [c for c in covs if c in cats]
+        vis_nums = [c for c in covs if c not in cats]
+        
+        # CHANGED SHAPE TO BOX (rounded)
+        if vis_nums:
+            label_num = "Numeric Controls\n" + "\n".join(vis_nums[:3])
+            if len(vis_nums) > 3: label_num += "\n..."
+            g.node('CN', label_num, fillcolor='#fff3cd', color='#856404', fontcolor='#856404', shape='box', style='rounded,filled')
+            g.edge('CN', 'T', style='dashed', dir='none')
+            g.edge('CN', 'O', style='dashed', dir='none')
+            
+        if vis_cats:
+            label_cat = "Categorical Controls\n" + "\n".join(vis_cats[:3])
+            if len(vis_cats) > 3: label_cat += "\n..."
+            g.node('CC', label_cat, fillcolor='#f8d7da', color='#842029', fontcolor='#842029', shape='box', style='rounded,filled')
+            g.edge('CC', 'T', style='dashed', dir='none')
+            g.edge('CC', 'O', style='dashed', dir='none')
+
+    if use_time and time_col:
+         g.node('Time', f'Time Trigger\n{time_col}\n>= {int_date}', shape='note', fillcolor='#e2e3e5', color='#383d41', fontcolor='#383d41')
+         g.edge('Time', 'T', label='activates')
+         
+    return g
+
+def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist, graph_config):
     pdf = FPDF()
     pdf.add_page()
     
@@ -182,12 +244,12 @@ def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist):
     pdf.set_font("Arial", 'B', 14)
     pdf.set_fill_color(240, 240, 240)
     pdf.cell(0, 10, "1. Executive Summary", ln=True, fill=True)
-    pdf.ln(2)
+    pdf.ln(5)
     
     pdf.set_font("Arial", '', 11)
     pdf.cell(0, 8, f"Intervention Variable: {treat}", ln=True)
     pdf.cell(0, 8, f"Target Outcome: {out}", ln=True)
-    pdf.ln(2)
+    pdf.ln(5)
     
     pdf.set_font("Arial", 'B', 12)
     pdf.cell(95, 10, f"Average Impact (ATE): {ate:.4f}", border=1)
@@ -197,10 +259,28 @@ def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist):
     pdf.cell(95, 10, f"95% CI: [{lower:.4f}, {upper:.4f}]", border=1, ln=True)
     pdf.ln(10)
     
-    # 2. Visual Impact Distribution
+    # 2. Logic Flowchart (Embedded)
     pdf.set_font("Arial", 'B', 14)
-    pdf.cell(0, 10, "2. Impact Distribution (Visual)", ln=True, fill=True)
-    pdf.ln(2)
+    pdf.cell(0, 10, "2. Logic Configuration (Flowchart)", ln=True, fill=True)
+    pdf.ln(5)
+    
+    # Re-generate graph for PDF
+    g_pdf = create_logic_graph(**graph_config)
+    # Render to temp png
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp_g:
+        try:
+            # Requires graphviz binary installed in system
+            g_pdf.render(filename=tmp_g.name.replace('.png', ''), format='png', cleanup=True)
+            pdf.image(tmp_g.name, x=10, w=190)
+        except Exception as e:
+            pdf.set_font("Arial", 'I', 10)
+            pdf.cell(0, 10, f"Could not render flowchart: {str(e)}", ln=True)
+    pdf.ln(5)
+
+    # 3. Visual Impact Distribution
+    pdf.set_font("Arial", 'B', 14)
+    pdf.cell(0, 10, "3. Impact Distribution", ln=True, fill=True)
+    pdf.ln(5)
     
     # Generate Chart using Matplotlib
     plt.figure(figsize=(6, 3))
@@ -211,27 +291,20 @@ def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist):
     plt.ylabel("Frequency")
     plt.tight_layout()
     
-    # Save to temp file
-    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp_file:
-        plt.savefig(tmp_file.name, format="png", dpi=100)
-        tmp_path = tmp_file.name
-    
-    # Embed in PDF
-    pdf.image(tmp_path, x=10, w=190)
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp_p:
+        plt.savefig(tmp_p.name, format="png", dpi=100)
+        pdf.image(tmp_p.name, x=10, w=190)
     pdf.ln(5)
-    
-    if os.path.exists(tmp_path):
-        os.remove(tmp_path)
     
     # Stats Text
     pdf.set_font("Arial", '', 10)
     pdf.cell(0, 6, f"Min: {impact_dist.min():.2f} | Max: {impact_dist.max():.2f} | Median: {impact_dist.median():.2f}", ln=True)
     pdf.ln(10)
 
-    # 3. Top Drivers
+    # 4. Top Drivers
     pdf.set_font("Arial", 'B', 14)
-    pdf.cell(0, 10, "3. Top Drivers of Impact", ln=True, fill=True)
-    pdf.ln(2)
+    pdf.cell(0, 10, "4. Top Drivers of Impact", ln=True, fill=True)
+    pdf.ln(5)
     
     pdf.set_font("Arial", '', 11)
     if not feats.empty:
@@ -357,57 +430,62 @@ with st.sidebar:
 
     # 3. ACTION TAB
     with tab_run:
-        # Run Button
-        if st.button("RUN NEW ANALYSIS", type="primary", use_container_width=True):
-            st.session_state['active_tab'] = "Action"
-            try:
-                with st.spinner("Calculating Impact..."):
-                    prep_df = raw_df.copy()
-                    if use_time and time_col and int_date:
-                        try:
-                            ts = pd.to_datetime(prep_df[time_col])
-                            ids = pd.to_datetime(int_date)
-                            prep_df['Is_Post'] = (ts >= ids).astype(int)
-                        except:
-                            prep_df['Is_Post'] = 0
-                    
-                    need = [treat_col, out_col] + covs
-                    if 'Is_Post' in prep_df.columns: need.append('Is_Post')
-                    
-                    clean, enc = preprocess_data(prep_df, need, cats)
-                    ml, stats, X_t, T_t, feats = run_analysis_logic(clean, treat_col, out_col, covs)
-                    
-                    if ml:
-                        st.session_state['results'] = {
-                            'ml': ml, 'stats': stats, 'X': X_t, 'df': clean,
-                            'treat': treat_col, 'out': out_col, 'feats': feats
-                        }
-            except ValueError as ve:
-                st.error(str(ve))
-            except Exception as e:
-                st.error(f"Analysis Failed: {e}")
-        
-        # Show Previous (Only if results exist AND we are NOT on Action view)
-        if st.session_state['results'] is not None and st.session_state['active_tab'] != "Action":
-             st.button("Show Previous Analysis", type="secondary", use_container_width=True, on_click=set_view, args=("Action",))
-        
-        st.button("Reset / Stop Analysis", type="secondary", use_container_width=True, on_click=reset_analysis)
-        
-        if st.session_state['results']:
-            res = st.session_state['results']
-            ate = res['ml'].ate(res['X'])
-            l, u = res['ml'].ate_interval(res['X'])
+        if uploaded_file:
+            if st.button("RUN NEW ANALYSIS", type="primary", use_container_width=True):
+                st.session_state['active_tab'] = "Action"
+                try:
+                    with st.spinner("Calculating Impact..."):
+                        prep_df = raw_df.copy()
+                        if use_time and time_col and int_date:
+                            try:
+                                ts = pd.to_datetime(prep_df[time_col])
+                                ids = pd.to_datetime(int_date)
+                                prep_df['Is_Post'] = (ts >= ids).astype(int)
+                            except:
+                                prep_df['Is_Post'] = 0
+                        
+                        need = [treat_col, out_col] + covs
+                        if 'Is_Post' in prep_df.columns: need.append('Is_Post')
+                        
+                        clean, enc = preprocess_data(prep_df, need, cats)
+                        ml, stats, X_t, T_t, feats = run_analysis_logic(clean, treat_col, out_col, covs)
+                        
+                        if ml:
+                            st.session_state['results'] = {
+                                'ml': ml, 'stats': stats, 'X': X_t, 'df': clean,
+                                'treat': treat_col, 'out': out_col, 'feats': feats,
+                                'graph_config': {
+                                    'treat': treat_col, 'out': out_col, 'covs': covs, 'cats': cats,
+                                    'use_time': use_time, 'time_col': time_col, 'int_date': int_date
+                                }
+                            }
+                except ValueError as ve:
+                    st.error(str(ve))
+                except Exception as e:
+                    st.error(f"Analysis Failed: {e}")
             
-            if res['stats'] and "Treat" in res['stats'].pvalues:
-                p = res['stats'].pvalues["Treat"]
-                r2 = res['stats'].rsquared
-            else:
-                p = np.nan
-                r2 = 0.0
+            if st.session_state['results'] is not None and st.session_state['active_tab'] != "Action":
+                 st.button("Show Previous Analysis", type="secondary", use_container_width=True, on_click=set_view, args=("Action",))
             
-            impact_dist = res['ml'].effect(res['X'])
-            pdf_data = generate_pdf(ate, l, u, p, r2, res['treat'], res['out'], res['feats'], pd.Series(impact_dist))
-            st.download_button("DOWNLOAD PDF REPORT", pdf_data, "causal_report.pdf", "application/pdf", use_container_width=True)
+            st.button("Reset / Stop Analysis", type="secondary", use_container_width=True, on_click=reset_analysis)
+            
+            if st.session_state['results']:
+                res = st.session_state['results']
+                ate = res['ml'].ate(res['X'])
+                l, u = res['ml'].ate_interval(res['X'])
+                
+                if res['stats'] and "Treat" in res['stats'].pvalues:
+                    p = res['stats'].pvalues["Treat"]
+                    r2 = res['stats'].rsquared
+                else:
+                    p = np.nan
+                    r2 = 0.0
+                
+                impact_dist = res['ml'].effect(res['X'])
+                
+                # Pass graph config to PDF generator
+                pdf_data = generate_pdf(ate, l, u, p, r2, res['treat'], res['out'], res['feats'], pd.Series(impact_dist), res['graph_config'])
+                st.download_button("DOWNLOAD PDF REPORT", pdf_data, "causal_report.pdf", "application/pdf", use_container_width=True)
 
 # --- MAIN PAGE ---
 
@@ -418,7 +496,6 @@ if st.session_state['active_tab'] == "Data":
     else:
         st.markdown("""
         <div class="main-info-box">
-            <div class="info-icon">👋</div>
             <div class="info-header">Welcome to the Causal Inference Portal</div>
             <div class="info-text">
                 This tool allows you to measure the <b>true impact</b> of interventions (like marketing campaigns, feature launches, or policy changes) by separating cause from correlation using advanced <b>Double Machine Learning</b>.
@@ -435,35 +512,8 @@ if st.session_state['active_tab'] == "Data":
 elif st.session_state['active_tab'] == "Logic":
     if st.session_state['uploaded_file']:
         st.subheader("Logic Visualization")
-        g = graphviz.Digraph()
-        g.attr(rankdir='LR', bgcolor='transparent', margin='0')
-        g.attr('node', fontname='Helvetica', shape='box', style='filled', color='white', fontcolor='#333')
-        g.attr('edge', fontname='Helvetica', color='#adb5bd')
-        
-        g.node('T', f'Intervention\n{treat_col}', fillcolor='#d1e7dd', color='#0f5132', fontcolor='#0f5132')
-        g.node('O', f'Outcome\n{out_col}', fillcolor='#cfe2ff', color='#084298', fontcolor='#084298')
-        g.edge('T', 'O', label=' Impact ')
-        
-        if covs:
-            vis_cats = [c for c in covs if c in cats]
-            vis_nums = [c for c in covs if c not in cats]
-            if vis_nums:
-                label_num = "Numeric Controls\n" + "\n".join(vis_nums[:3])
-                if len(vis_nums) > 3: label_num += "\n..."
-                g.node('CN', label_num, shape='ellipse', fillcolor='#fff3cd', color='#856404', fontcolor='#856404')
-                g.edge('CN', 'T', style='dashed', dir='none')
-                g.edge('CN', 'O', style='dashed', dir='none')
-            if vis_cats:
-                label_cat = "Categorical Controls\n" + "\n".join(vis_cats[:3])
-                if len(vis_cats) > 3: label_cat += "\n..."
-                g.node('CC', label_cat, shape='ellipse', fillcolor='#f8d7da', color='#842029', fontcolor='#842029')
-                g.edge('CC', 'T', style='dashed', dir='none')
-                g.edge('CC', 'O', style='dashed', dir='none')
-
-        if use_time and time_col:
-             g.node('Time', f'Time Trigger\n{time_col}\n>= {int_date}', shape='note', fillcolor='#e2e3e5', color='#383d41', fontcolor='#383d41')
-             g.edge('Time', 'T', label='activates')
-            
+        # Use shared function
+        g = create_logic_graph(treat_col, out_col, covs, cats, use_time, time_col, int_date)
         st.graphviz_chart(g)
     else:
         st.warning("Upload data first.")
@@ -504,10 +554,14 @@ elif st.session_state['active_tab'] == "Action":
         """, unsafe_allow_html=True)
 
         c1, c2, c3, c4 = st.columns(4)
-        with c1: st.markdown(f'<div class="metric-card"><div class="metric-label">Average Impact</div><div class="metric-value">{ate:.2f}</div></div>', unsafe_allow_html=True)
-        with c2: st.markdown(f'<div class="metric-card"><div class="metric-label">95% Range</div><div class="metric-value">[{l:.2f}, {u:.2f}]</div></div>', unsafe_allow_html=True)
-        with c3: st.markdown(f'<div class="metric-card"><div class="metric-label">Certainty</div><div class="metric-value" style="color:{sig_color}">{sig_text}</div></div>', unsafe_allow_html=True)
-        with c4: st.markdown(f'<div class="metric-card"><div class="metric-label">Model Fit (R2)</div><div class="metric-value">{r2:.2f}</div></div>', unsafe_allow_html=True)
+        with c1: 
+             st.markdown(f'<div class="metric-container"><div class="metric-label">Average Impact</div><div class="metric-value">{ate:.2f}</div></div>', unsafe_allow_html=True)
+        with c2: 
+             st.markdown(f'<div class="metric-container"><div class="metric-label">95% Range</div><div class="metric-value">[{l:.2f}, {u:.2f}]</div></div>', unsafe_allow_html=True)
+        with c3: 
+             st.markdown(f'<div class="metric-container"><div class="metric-label">Certainty</div><div class="metric-value" style="color:{sig_color}">{sig_text}</div></div>', unsafe_allow_html=True)
+        with c4: 
+             st.markdown(f'<div class="metric-container"><div class="metric-label">Model Fit (R2)</div><div class="metric-value">{r2:.2f}</div></div>', unsafe_allow_html=True)
         
         st.markdown("---")
         
@@ -547,5 +601,4 @@ elif st.session_state['active_tab'] == "Action":
             else:
                 st.warning("Statistical model unavailable.")
     else:
-        # If result is None, but user is on Action tab, show prompt
         st.info("Configure logic and click Run Analysis in the sidebar.")
