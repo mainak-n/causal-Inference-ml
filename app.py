@@ -31,6 +31,12 @@ def set_view(view_name):
 def reset_analysis():
     st.session_state['results'] = None
 
+# --- CACHING (Optimized for 200MB+ Data) ---
+@st.cache_data(max_entries=1)
+def load_data(uploaded_file):
+    """Loads and caches data to handle large files (up to 200MB) efficiently."""
+    return pd.read_csv(uploaded_file)
+
 # --- CSS STYLING ---
 css = """
     <style>
@@ -254,7 +260,7 @@ def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist, g
         g_pdf = create_logic_graph(**graph_config)
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp_g:
             g_pdf.render(filename=tmp_g.name.replace('.png', ''), format='png', cleanup=True)
-            # Reduced to 80 (approx 40% smaller than full width)
+            # Reduced size
             pdf.image(tmp_g.name, x=65, w=80) 
     except Exception as e:
         pdf.set_font("Arial", 'I', 8)
@@ -278,7 +284,7 @@ def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist, g
     
     with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp_p:
         plt.savefig(tmp_p.name, format="png", dpi=100)
-        # Matched width with flowchart
+        # Reduced width
         pdf.image(tmp_p.name, x=65, w=80)
     pdf.ln(3)
     
@@ -363,11 +369,13 @@ with st.sidebar:
         btn_type = "primary" if st.session_state['active_tab'] != "Data" else "secondary"
         st.button("Show Table View", type=btn_type, use_container_width=True, on_click=set_view, args=("Data",))
             
-        uploaded_file = st.file_uploader("Upload CSV", type="csv")
+        uploaded_file = st.file_uploader("Upload CSV", type="csv", help="Max file size: 200MB")
         
         if uploaded_file:
-            st.session_state['uploaded_file'] = uploaded_file
-            raw_df = pd.read_csv(uploaded_file)
+            # Load and Cache Data
+            raw_df = load_data(uploaded_file)
+            st.session_state['uploaded_file'] = uploaded_file # Keep reference
+            
             cols = raw_df.columns.tolist()
             st.success(f"Loaded {len(raw_df)} rows")
         else:
@@ -483,7 +491,7 @@ if st.session_state['active_tab'] == "Data":
         st.markdown("### 📋 Required Data Format (CSV)")
         st.markdown("Your CSV should follow this structure:")
         
-        # Use simple Markdown table to avoid HTML issues
+        # Standard Markdown Table (Clean & Robust)
         st.markdown("""
         | Treatment (0/1) | Outcome ($) | Control 1 (Age) | Control 2 (Region) |
         | :--- | :--- | :--- | :--- |
@@ -551,7 +559,7 @@ elif st.session_state['active_tab'] == "Action":
         with c4: 
              st.markdown(f'<div class="metric-container"><div class="metric-label">Model Fit (R2)</div><div class="metric-value">{r2:.2f}</div></div>', unsafe_allow_html=True)
         
-        st.markdown("---")
+        # REMOVED THE LINE HERE AS REQUESTED
         
         t1, t2, t3, t4 = st.tabs(["📉 Impact Distribution", "🧠 Drivers of Impact", "🔍 Segment Analysis", "📊 Stats Table"])
         
