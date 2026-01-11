@@ -34,32 +34,37 @@ def reset_analysis():
 # --- CSS STYLING ---
 css = """
     <style>
-    /* 1. FIXED HEADER */
+    /* 1. STICKY HEADER (Dynamic Centering) */
     .header-container {
-        position: fixed;
-        top: 3.75rem;
-        left: 21rem; /* Starts after sidebar */
-        width: calc(100% - 21rem);
-        background-color: #ffffff;
-        z-index: 999;
-        padding: 0px 40px;
-        border-bottom: 1px solid #e0e0e0;
-        height: 60px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-    }
-    .header-title {
-        font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-        font-size: 22px;
-        font-weight: 700;
-        color: #212529;
-        margin: 0;
+        position: sticky;
+        top: 2rem; /* Sticks below the standard Streamlit decoration bar */
+        z-index: 800; /* High enough to sit over content, low enough for dropdowns */
+        background-color: white;
+        
+        /* Extend to edges of the container */
+        margin-left: -5rem;
+        margin-right: -5rem;
+        padding: 1rem 5rem;
+        
+        border-bottom: 1px solid #f0f2f6;
+        text-align: center;
+        margin-bottom: 2rem;
     }
     
-    /* 2. PUSH MAIN CONTENT DOWN */
+    /* Font Matching "Data Inspector" (Streamlit Subheader style) */
+    .header-title {
+        font-family: "Source Sans Pro", sans-serif;
+        font-weight: 600;
+        font-size: 1.5rem; /* ~24px */
+        color: rgb(49, 51, 63);
+        margin: 0;
+        line-height: 1.2;
+    }
+    
+    /* 2. ADJUST TOP PADDING FOR CONTENT */
     .block-container {
-        padding-top: 8rem !important;
+        padding-top: 3rem !important; /* Reduced since we use sticky, not fixed */
+        padding-bottom: 5rem;
     }
 
     /* 3. SIDEBAR ALIGNMENT */
@@ -69,12 +74,12 @@ css = """
     [data-testid="stSidebarNav"] { display: none; }
     .stTabs { margin-top: -20px; }
 
-    /* 4. TABS */
+    /* 4. TABS STYLE */
     .stTabs [data-baseweb="tab-list"] {
         display: flex;
         width: 100%;
         gap: 2px;
-        background-color: #e9ecef;
+        background-color: #f0f2f6; /* Lighter gray */
         padding: 4px;
         border-radius: 6px;
     }
@@ -84,14 +89,14 @@ css = """
         height: 40px;
         background-color: transparent;
         border-radius: 4px;
-        font-size: 13px;
+        font-size: 14px;
         font-weight: 600;
-        color: #495057;
+        color: #555;
         border: none;
     }
     .stTabs [aria-selected="true"] {
         background-color: #ffffff !important;
-        color: #0d6efd !important;
+        color: #ff4b4b !important; /* Streamlit Red/Primary */
         box-shadow: 0 1px 2px rgba(0,0,0,0.1);
     }
 
@@ -103,49 +108,16 @@ css = """
         padding: 40px;
         text-align: center;
         max-width: 800px;
-        margin: 50px auto;
+        margin: 0 auto;
         box-shadow: 0 4px 12px rgba(0,0,0,0.05);
     }
     .info-icon { font-size: 40px; margin-bottom: 20px; }
-    .info-header { font-size: 24px; font-weight: 700; color: #212529; margin-bottom: 15px; }
+    .info-header { font-size: 24px; font-weight: 700; color: #31333F; margin-bottom: 15px; }
     .info-text { font-size: 16px; color: #6c757d; line-height: 1.6; }
-    .info-list { text-align: left; display: inline-block; margin-top: 20px; color: #495057; }
+    .info-list { text-align: left; display: inline-block; margin-top: 20px; color: #31333F; }
 
-    /* 6. INSIGHT BOX */
-    .insight-box {
-        background-color: #f8f9fa;
-        border-left: 4px solid #0d6efd;
-        padding: 15px;
-        border-radius: 4px;
-        margin-bottom: 20px;
-        font-size: 14px;
-        color: #495057;
-    }
-
-    /* 7. METRIC CARDS */
-    .metric-card {
-        background-color: white;
-        border: 1px solid #e9ecef;
-        border-radius: 8px;
-        padding: 20px;
-        text-align: center;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.02);
-    }
-    .metric-label {
-        font-size: 10px;
-        font-weight: 700;
-        text-transform: uppercase;
-        color: #adb5bd;
-        margin-bottom: 5px;
-        letter-spacing: 0.5px;
-    }
-    .metric-value {
-        font-size: 20px;
-        font-weight: 700;
-        color: #212529;
-    }
-
-    h1, h2, h3 { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #212529; }
+    /* General */
+    h1, h2, h3 { font-family: "Source Sans Pro", sans-serif; }
     </style>
     
     <div class="header-container">
@@ -153,6 +125,7 @@ css = """
     </div>
 """
 
+# Dynamic CSS for Uploader
 if st.session_state['uploaded_file'] is None:
     css += """
     <style>
@@ -247,7 +220,6 @@ def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist):
     pdf.image(tmp_path, x=10, w=190)
     pdf.ln(5)
     
-    # Remove temp file
     if os.path.exists(tmp_path):
         os.remove(tmp_path)
     
@@ -385,56 +357,57 @@ with st.sidebar:
 
     # 3. ACTION TAB
     with tab_run:
-        if uploaded_file:
-            if st.button("RUN NEW ANALYSIS", type="primary", use_container_width=True):
-                st.session_state['active_tab'] = "Action"
-                try:
-                    with st.spinner("Calculating Impact..."):
-                        prep_df = raw_df.copy()
-                        if use_time and time_col and int_date:
-                            try:
-                                ts = pd.to_datetime(prep_df[time_col])
-                                ids = pd.to_datetime(int_date)
-                                prep_df['Is_Post'] = (ts >= ids).astype(int)
-                            except:
-                                prep_df['Is_Post'] = 0
-                        
-                        need = [treat_col, out_col] + covs
-                        if 'Is_Post' in prep_df.columns: need.append('Is_Post')
-                        
-                        clean, enc = preprocess_data(prep_df, need, cats)
-                        ml, stats, X_t, T_t, feats = run_analysis_logic(clean, treat_col, out_col, covs)
-                        
-                        if ml:
-                            st.session_state['results'] = {
-                                'ml': ml, 'stats': stats, 'X': X_t, 'df': clean,
-                                'treat': treat_col, 'out': out_col, 'feats': feats
-                            }
-                except ValueError as ve:
-                    st.error(str(ve))
-                except Exception as e:
-                    st.error(f"Analysis Failed: {e}")
+        # Run Button
+        if st.button("RUN NEW ANALYSIS", type="primary", use_container_width=True):
+            st.session_state['active_tab'] = "Action"
+            try:
+                with st.spinner("Calculating Impact..."):
+                    prep_df = raw_df.copy()
+                    if use_time and time_col and int_date:
+                        try:
+                            ts = pd.to_datetime(prep_df[time_col])
+                            ids = pd.to_datetime(int_date)
+                            prep_df['Is_Post'] = (ts >= ids).astype(int)
+                        except:
+                            prep_df['Is_Post'] = 0
+                    
+                    need = [treat_col, out_col] + covs
+                    if 'Is_Post' in prep_df.columns: need.append('Is_Post')
+                    
+                    clean, enc = preprocess_data(prep_df, need, cats)
+                    ml, stats, X_t, T_t, feats = run_analysis_logic(clean, treat_col, out_col, covs)
+                    
+                    if ml:
+                        st.session_state['results'] = {
+                            'ml': ml, 'stats': stats, 'X': X_t, 'df': clean,
+                            'treat': treat_col, 'out': out_col, 'feats': feats
+                        }
+            except ValueError as ve:
+                st.error(str(ve))
+            except Exception as e:
+                st.error(f"Analysis Failed: {e}")
+        
+        # Show Previous (Only if results exist AND we are NOT on Action view)
+        if st.session_state['results'] is not None and st.session_state['active_tab'] != "Action":
+             st.button("Show Previous Analysis", type="secondary", use_container_width=True, on_click=set_view, args=("Action",))
+        
+        st.button("Reset / Stop Analysis", type="secondary", use_container_width=True, on_click=reset_analysis)
+        
+        if st.session_state['results']:
+            res = st.session_state['results']
+            ate = res['ml'].ate(res['X'])
+            l, u = res['ml'].ate_interval(res['X'])
             
-            if st.session_state['results'] is not None and st.session_state['active_tab'] != "Action":
-                 st.button("Show Previous Analysis", type="secondary", use_container_width=True, on_click=set_view, args=("Action",))
+            if res['stats'] and "Treat" in res['stats'].pvalues:
+                p = res['stats'].pvalues["Treat"]
+                r2 = res['stats'].rsquared
+            else:
+                p = np.nan
+                r2 = 0.0
             
-            st.button("Reset / Stop Analysis", type="secondary", use_container_width=True, on_click=reset_analysis)
-            
-            if st.session_state['results']:
-                res = st.session_state['results']
-                ate = res['ml'].ate(res['X'])
-                l, u = res['ml'].ate_interval(res['X'])
-                
-                if res['stats'] and "Treat" in res['stats'].pvalues:
-                    p = res['stats'].pvalues["Treat"]
-                    r2 = res['stats'].rsquared
-                else:
-                    p = np.nan
-                    r2 = 0.0
-                
-                impact_dist = res['ml'].effect(res['X'])
-                pdf_data = generate_pdf(ate, l, u, p, r2, res['treat'], res['out'], res['feats'], pd.Series(impact_dist))
-                st.download_button("DOWNLOAD PDF REPORT", pdf_data, "causal_report.pdf", "application/pdf", use_container_width=True)
+            impact_dist = res['ml'].effect(res['X'])
+            pdf_data = generate_pdf(ate, l, u, p, r2, res['treat'], res['out'], res['feats'], pd.Series(impact_dist))
+            st.download_button("DOWNLOAD PDF REPORT", pdf_data, "causal_report.pdf", "application/pdf", use_container_width=True)
 
 # --- MAIN PAGE ---
 
@@ -574,4 +547,5 @@ elif st.session_state['active_tab'] == "Action":
             else:
                 st.warning("Statistical model unavailable.")
     else:
-        pass
+        # If result is None, but user is on Action tab, show prompt
+        st.info("Configure logic and click Run Analysis in the sidebar.")
