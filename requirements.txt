@@ -5,3 +5,5 @@ plotly
 scikit-learn
 econml
 statsmodels
+fpdf
+graphviz

@@ -6,80 +6,38 @@ import statsmodels.api as sm
 from econml.dml import CausalForestDML
 from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
 from sklearn.preprocessing import LabelEncoder
+from fpdf import FPDF
+import graphviz
+import base64
 
 # --- PAGE CONFIGURATION ---
-st.set_page_config(
-    page_title="Causal Inference Portal",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+st.set_page_config(page_title="Causal Inference Portal", layout="wide")
 
 # --- CSS STYLING ---
 st.markdown("""
     <style>
-    /* 1. REMOVE TITLE GAP */
-    .block-container {
-        padding-top: 2rem;
-    }
-    
-    /* 2. NAVIGATION TABS (Radio Button Styled) */
-    div.row-widget.stRadio > div {
-        flex-direction: row;
-        align-items: stretch;
-        background-color: #f0f2f6;
-        border-radius: 8px;
-        padding: 5px;
-    }
-    div.row-widget.stRadio > div[role="radiogroup"] > label {
-        flex-grow: 1;
-        text-align: center;
-        background-color: transparent;
-        border: none;
-        padding: 10px;
+    .stTabs [data-baseweb="tab-list"] { gap: 10px; }
+    .stTabs [data-baseweb="tab"] {
+        height: 50px;
+        background-color: #f8f9fa;
         border-radius: 5px;
         font-weight: 600;
         color: #555;
     }
-    div.row-widget.stRadio > div[role="radiogroup"] > label[data-baseweb="radio"] {
-        background-color: #ffffff !important;
-        color: #0d6efd !important;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    .stTabs [aria-selected="true"] {
+        background-color: #0d6efd !important;
+        color: white !important;
     }
-
-    /* 3. METRIC CARDS */
     .metric-card {
-        background-color: white;
-        border: 1px solid #e0e0e0;
-        border-radius: 8px;
-        padding: 20px;
-        text-align: center;
-        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        background-color: white; border: 1px solid #e0e0e0; border-radius: 8px;
+        padding: 20px; text-align: center; box-shadow: 0 1px 2px rgba(0,0,0,0.05);
     }
     .metric-value { font-size: 24px; font-weight: 700; color: #212529; }
-    .metric-label { font-size: 11px; text-transform: uppercase; color: #6c757d; letter-spacing: 0.5px; }
-
-    /* 4. CONFIG HIGHLIGHT CARD */
-    .config-card {
-        background-color: #e8f4fd;
-        border-left: 5px solid #0d6efd;
-        padding: 15px;
-        border-radius: 5px;
-        margin-bottom: 10px;
-    }
-    
-    h1 { font-family: 'Helvetica Neue', sans-serif; font-weight: 700; margin-bottom: 0px; }
+    .metric-label { font-size: 11px; text-transform: uppercase; color: #6c757d; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- STATE MANAGEMENT ---
-if 'analysis_results' not in st.session_state:
-    st.session_state['analysis_results'] = None
-
-def reset_analysis():
-    """Reset results if config changes"""
-    st.session_state['analysis_results'] = None
-
-# --- LOGIC FUNCTIONS ---
+# --- HELPER FUNCTIONS ---
 def preprocess_data(df, selected_columns):
     data = df[selected_columns].copy()
     data = data.dropna()
@@ -91,6 +49,21 @@ def preprocess_data(df, selected_columns):
             encoders[col] = le
     return data, encoders
 
+def generate_pdf_report(ate, lower, upper, p_val, r2):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", 'B', 16)
+    pdf.cell(200, 10, txt="Causal Analysis Report", ln=True, align='C')
+    pdf.ln(10)
+    
+    pdf.set_font("Arial", size=12)
+    pdf.cell(200, 10, txt=f"Average Treatment Effect (ATE): {ate:.4f}", ln=True)
+    pdf.cell(200, 10, txt=f"95% Confidence Interval: [{lower:.4f}, {upper:.4f}]", ln=True)
+    pdf.cell(200, 10, txt=f"P-Value: {p_val:.5f} ({'Significant' if p_val < 0.05 else 'Inconclusive'})", ln=True)
+    pdf.cell(200, 10, txt=f"Model Fit (R-Squared): {r2:.4f}", ln=True)
+    
+    return pdf.output(dest='S').encode('latin-1')
+
 def run_causal_analysis(df, treatment_col, outcome_col, covariates, time_col=None, intervention_date=None):
     if not covariates:
         X = np.zeros((len(df), 1))
@@ -101,6 +74,7 @@ def run_causal_analysis(df, treatment_col, outcome_col, covariates, time_col=Non
     
     Y = df[outcome_col]
     
+    # Treatment Definition
     if time_col and intervention_date:
         try:
             time_series = pd.to_datetime(df[time_col])
@@ -122,6 +96,7 @@ def run_causal_analysis(df, treatment_col, outcome_col, covariates, time_col=Non
     else:
         T = df[treatment_col]
 
+    # Run ML Model
     est = CausalForestDML(
         model_y=RandomForestRegressor(n_estimators=50, max_depth=6),
         model_t=RandomForestClassifier(n_estimators=50, max_depth=6),
@@ -129,170 +104,174 @@ def run_causal_analysis(df, treatment_col, outcome_col, covariates, time_col=Non
     )
     est.fit(Y, T, X=X)
     
+    # Run Stats Model
     X_stats = sm.add_constant(pd.concat([T.rename("Treatment"), pd.DataFrame(X, index=df.index)], axis=1))
     X_stats.columns = ["Const", "Treatment"] + [f"Var_{i}" for i in range(len(feature_names))]
     ols_model = sm.OLS(Y, X_stats).fit()
     
     return est, ols_model, X, T
 
-# --- SIDEBAR & NAVIGATION ---
-with st.sidebar:
-    st.header("Project Config")
-    
-    # NAVIGATION TABS
-    nav = st.radio("Step", ["Data", "Logic", "Analysis"], label_visibility="collapsed")
-    
-    st.markdown("---")
-    
-    # 1. DATA INPUTS (Always visible in Logic/Analysis to allow context)
-    uploaded_file = st.file_uploader("Upload CSV", type="csv")
-    
-    cols = []
-    if uploaded_file:
-        raw_df = pd.read_csv(uploaded_file)
-        cols = raw_df.columns.tolist()
-        
-        # 2. LOGIC INPUTS (Only visible when Logic or Analysis is selected)
-        if nav in ["Logic", "Analysis"]:
-            st.subheader("Configuration")
-            treatment_col = st.selectbox("Treatment Column", cols, index=0, on_change=reset_analysis)
-            outcome_col = st.selectbox("Outcome Column", cols, index=1 if len(cols)>1 else 0, on_change=reset_analysis)
-            
-            use_time = st.checkbox("Time Dimension", on_change=reset_analysis)
-            time_col = None
-            intervention_date = None
-            
-            if use_time:
-                time_col = st.selectbox("Date Column", cols, on_change=reset_analysis)
-                try:
-                    min_d = pd.to_datetime(raw_df[time_col]).min()
-                    max_d = pd.to_datetime(raw_df[time_col]).max()
-                    intervention_date = st.date_input("Intervention Date", value=min_d, min_value=min_d, max_value=max_d, on_change=reset_analysis)
-                except:
-                    intervention_date = st.text_input("Intervention Value", on_change=reset_analysis)
-            
-            exclude = [treatment_col, outcome_col]
-            if time_col: exclude.append(time_col)
-            covariates = st.multiselect("Control Variables", [c for c in cols if c not in exclude], on_change=reset_analysis)
+# --- SESSION STATE ---
+if 'data' not in st.session_state: st.session_state['data'] = None
+if 'cols' not in st.session_state: st.session_state['cols'] = []
+if 'results' not in st.session_state: st.session_state['results'] = None
 
-# --- MAIN PAGE CONTENT ---
-
+# --- MAIN LAYOUT ---
 st.title("Causal Effect Analysis Portal")
 
-# VIEW 1: DATA TAB
-if nav == "Data":
+# THE 3 MAIN TABS
+tab_data, tab_logic, tab_analysis = st.tabs(["📂 1. Data Source", "⚙️ 2. Logic Configuration", "🚀 3. Analysis & Report"])
+
+# ------------------------------------------------------------------
+# TAB 1: DATA (File Upload Only)
+# ------------------------------------------------------------------
+with tab_data:
+    st.subheader("Data Ingestion")
+    uploaded_file = st.file_uploader("Upload CSV File", type="csv")
+    
     if uploaded_file:
-        st.subheader(f"Data Preview ({len(raw_df)} rows)")
-        st.dataframe(raw_df.head(50), use_container_width=True)
-    else:
-        st.info("Please upload a CSV file in the sidebar.")
-
-# VIEW 2: LOGIC TAB (HIGHLIGHT CONFIGURATION)
-elif nav == "Logic":
-    if uploaded_file:
-        st.subheader("Logic Configuration Summary")
+        raw_df = pd.read_csv(uploaded_file)
+        st.session_state['data'] = raw_df
+        st.session_state['cols'] = raw_df.columns.tolist()
         
-        # Highlight Card
-        st.markdown(f"""
-        <div class="config-card">
-            <b>Treatment (Intervention):</b> {treatment_col}<br>
-            <b>Outcome (Target):</b> {outcome_col}<br>
-            <b>Time Logic:</b> {'Enabled' if use_time else 'Disabled'}<br>
-            <b>Controls:</b> {', '.join(covariates) if covariates else 'None'}
-        </div>
-        """, unsafe_allow_html=True)
-        
-        st.markdown("**Mapped Data Sample:**")
-        # Show a snippet of ONLY the selected columns to visualize the logic
-        sel_cols = [treatment_col, outcome_col] + covariates
-        if time_col: sel_cols.append(time_col)
-        st.dataframe(raw_df[sel_cols].head(10), use_container_width=True)
-        
+        st.markdown(f"**Preview ({len(raw_df)} rows):**")
+        st.dataframe(raw_df.head(100), use_container_width=True)
     else:
-        st.warning("Upload data in the 'Data' tab first.")
+        st.info("Please upload a CSV file to proceed.")
 
-# VIEW 3: ANALYSIS TAB
-elif nav == "Analysis":
-    if not uploaded_file:
-        st.warning("Please upload data first.")
-    else:
-        # SIDEBAR BUTTON
-        with st.sidebar:
-            st.markdown("---")
-            btn_label = "Rerun Analysis" if st.session_state['analysis_results'] else "Run Analysis"
-            run = st.button(btn_label, type="primary", use_container_width=True)
+# ------------------------------------------------------------------
+# TAB 2: LOGIC (Configuration & Flowchart)
+# ------------------------------------------------------------------
+with tab_logic:
+    if st.session_state['data'] is not None:
+        cols = st.session_state['cols']
+        
+        col1, col2 = st.columns([1, 2])
+        
+        with col1:
+            st.subheader("Map Variables")
+            treatment = st.selectbox("Treatment (Intervention)", cols, index=0)
+            outcome = st.selectbox("Outcome (Target)", cols, index=1 if len(cols)>1 else 0)
+            
+            use_time = st.checkbox("Enable Time Dimension")
+            time_col, intervention_date = None, None
+            
+            if use_time:
+                time_col = st.selectbox("Time Column", cols)
+                try:
+                    df = st.session_state['data']
+                    min_d = pd.to_datetime(df[time_col]).min()
+                    max_d = pd.to_datetime(df[time_col]).max()
+                    intervention_date = st.date_input("Start Date", value=min_d, min_value=min_d, max_value=max_d)
+                except:
+                    intervention_date = st.text_input("Start Value")
 
-        if run:
-            with st.spinner("Processing Causal Models..."):
-                needed = [treatment_col, outcome_col] + covariates
-                if time_col: needed.append(time_col)
+            exclude = [treatment, outcome]
+            if time_col: exclude.append(time_col)
+            controls = st.multiselect("Confounders (Controls)", [c for c in cols if c not in exclude])
+            
+            # Save config to session
+            st.session_state['config'] = {
+                'treatment': treatment, 'outcome': outcome, 
+                'controls': controls, 'time': time_col, 'date': intervention_date
+            }
+
+        with col2:
+            st.subheader("Logic Flow Visualization")
+            # DYNAMIC FLOWCHART
+            graph = graphviz.Digraph()
+            graph.attr(rankdir='LR')
+            
+            graph.node('T', f'Treatment\n({treatment})', shape='box', style='filled', fillcolor='#d1e7dd', color='#0f5132')
+            graph.node('O', f'Outcome\n({outcome})', shape='box', style='filled', fillcolor='#cfe2ff', color='#084298')
+            
+            graph.edge('T', 'O', label='Causal Impact?')
+            
+            if controls:
+                graph.node('C', 'Confounders\n(Controls)', shape='ellipse', style='filled', fillcolor='#fff3cd', color='#664d03')
+                graph.edge('C', 'T', style='dashed')
+                graph.edge('C', 'O', style='dashed')
                 
-                clean_df, encoders = preprocess_data(raw_df, needed)
+            if use_time:
+                 graph.node('Time', f'Time Filter\n(> {intervention_date})', shape='note')
+                 graph.edge('Time', 'T', label='activates')
+
+            st.graphviz_chart(graph)
+            
+    else:
+        st.warning("Please upload data in the 'Data Source' tab first.")
+
+# ------------------------------------------------------------------
+# TAB 3: ANALYSIS (Run & Download)
+# ------------------------------------------------------------------
+with tab_analysis:
+    if st.session_state['data'] is not None and 'config' in st.session_state:
+        cfg = st.session_state['config']
+        
+        col_run, col_down = st.columns([1, 4])
+        with col_run:
+            run_btn = st.button("🚀 Run Analysis", type="primary")
+        
+        if run_btn:
+            with st.spinner("Training Causal Models..."):
+                needed = [cfg['treatment'], cfg['outcome']] + cfg['controls']
+                if cfg['time']: needed.append(cfg['time'])
+                
+                clean_df, encoders = preprocess_data(st.session_state['data'], needed)
+                
                 ml, stats, X_test, T_test = run_causal_analysis(
-                    clean_df, treatment_col, outcome_col, covariates, time_col, intervention_date
+                    clean_df, cfg['treatment'], cfg['outcome'], cfg['controls'], cfg['time'], cfg['date']
                 )
                 
                 if ml:
-                    # Store results
-                    st.session_state['analysis_results'] = {
-                        'ml': ml, 'stats': stats, 'X': X_test, 'df': clean_df, 'covs': covariates
-                    }
+                    st.session_state['results'] = {'ml': ml, 'stats': stats, 'X': X_test, 'df': clean_df}
 
-        # DISPLAY RESULTS (If they exist)
-        results = st.session_state['analysis_results']
-        
-        if results:
-            ml = results['ml']
-            stats = results['stats']
-            X = results['X']
-            df = results['df']
-            covs = results['covs']
+        # DISPLAY RESULTS
+        if st.session_state['results']:
+            res = st.session_state['results']
+            ml, stats = res['ml'], res['stats']
             
-            ate = ml.ate(X)
-            lower, upper = ml.ate_interval(X)
+            # Calc Metrics
+            ate = ml.ate(res['X'])
+            lower, upper = ml.ate_interval(res['X'])
+            
+            # FIX: Use correct variable name p_val vs p_value
             p_val = stats.pvalues["Treatment"]
             r2 = stats.rsquared
             
-            st.subheader("Analysis Results")
-            
-            # Metric Cards
+            # Metrics
             c1, c2, c3, c4 = st.columns(4)
-            with c1:
-                st.markdown(f'<div class="metric-card"><div class="metric-label">Average Impact</div><div class="metric-value">{ate:.2f}</div></div>', unsafe_allow_html=True)
-            with c2:
-                st.markdown(f'<div class="metric-card"><div class="metric-label">95% CI</div><div class="metric-value">[{lower:.2f}, {upper:.2f}]</div></div>', unsafe_allow_html=True)
+            with c1: st.markdown(f'<div class="metric-card"><div class="metric-label">Average Impact</div><div class="metric-value">{ate:.2f}</div></div>', unsafe_allow_html=True)
+            with c2: st.markdown(f'<div class="metric-card"><div class="metric-label">95% CI</div><div class="metric-value">[{lower:.2f}, {upper:.2f}]</div></div>', unsafe_allow_html=True)
+            
             with c3:
+                # FIX: Logic handles p_val correctly now
                 color = "#198754" if p_val < 0.05 else "#dc3545"
-                txt = "SIGNIFICANT" if p_value < 0.05 else "INCONCLUSIVE"
+                txt = "SIGNIFICANT" if p_val < 0.05 else "INCONCLUSIVE"
                 st.markdown(f'<div class="metric-card"><div class="metric-label">Certainty</div><div class="metric-value" style="color:{color}">{txt}</div></div>', unsafe_allow_html=True)
-            with c4:
-                st.markdown(f'<div class="metric-card"><div class="metric-label">Model Fit (R2)</div><div class="metric-value">{r2:.2f}</div></div>', unsafe_allow_html=True)
+            
+            with c4: st.markdown(f'<div class="metric-card"><div class="metric-label">Model Fit (R2)</div><div class="metric-value">{r2:.2f}</div></div>', unsafe_allow_html=True)
             
             st.markdown("---")
             
-            # Tabs for Charts
-            t1, t2, t3 = st.tabs(["Impact Distribution", "Drivers", "Stats Table"])
+            # PDF DOWNLOAD BUTTON
+            pdf_bytes = generate_pdf_report(ate, lower, upper, p_val, r2)
+            st.download_button(
+                label="📄 Download Report (PDF)",
+                data=pdf_bytes,
+                file_name="causal_analysis_report.pdf",
+                mime="application/pdf"
+            )
             
-            df['Impact'] = ml.effect(X)
+            # Charts
+            t1, t2 = st.tabs(["Impact Distribution", "Stats Details"])
+            res['df']['Impact'] = ml.effect(res['X'])
             
             with t1:
-                fig = px.histogram(df, x='Impact', nbins=50, color_discrete_sequence=['#0d6efd'], title="Impact Variation")
-                fig.add_vline(x=0, line_dash="dash", line_color="black")
-                fig.update_layout(plot_bgcolor="white")
+                fig = px.histogram(res['df'], x='Impact', nbins=50, title="Impact Variation")
                 st.plotly_chart(fig, use_container_width=True)
-                
             with t2:
-                if covs:
-                    interp = RandomForestRegressor(max_depth=4)
-                    interp.fit(X, df['Impact'])
-                    imp = pd.DataFrame({'Var': X.columns, 'Imp': interp.feature_importances_}).sort_values('Imp')
-                    fig2 = px.bar(imp, x='Imp', y='Var', orientation='h', color_discrete_sequence=['#0d6efd'])
-                    fig2.update_layout(plot_bgcolor="white")
-                    st.plotly_chart(fig2, use_container_width=True)
-                else:
-                    st.info("No confounders selected.")
-                    
-            with t3:
                 st.text(stats.summary())
-        else:
-            st.info("Configuration ready. Click 'Run Analysis' in the sidebar.")
+
+    else:
+        st.info("Configure your logic in Tab 2 first.")
