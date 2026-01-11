@@ -19,63 +19,59 @@ st.set_page_config(
 # --- PROFESSIONAL CSS ---
 st.markdown("""
     <style>
-    /* 1. NAVIGATION TABS (Radio styled as Tabs) */
-    div.row-widget.stRadio > div {
-        flex-direction: row;
-        align-items: stretch;
-        background-color: #e9ecef;
-        padding: 4px;
-        border-radius: 8px;
-    }
-    div.row-widget.stRadio > div[role="radiogroup"] > label {
-        flex-grow: 1;
-        text-align: center;
-        background-color: transparent;
-        border: none;
-        padding: 8px 16px;
+    /* 1. FORCE TABS TO FILL WIDTH */
+    .stTabs [data-baseweb="tab-list"] {
+        display: flex;
+        width: 100%;
+        gap: 2px;
+        background-color: #f8f9fa;
+        padding: 5px;
         border-radius: 6px;
-        font-weight: 600;
-        color: #6c757d;
-        box-shadow: none;
     }
-    div.row-widget.stRadio > div[role="radiogroup"] > label[data-baseweb="radio"] {
+    .stTabs [data-baseweb="tab"] {
+        flex-grow: 1;
+        justify-content: center;
+        height: 45px;
+        background-color: transparent;
+        border-radius: 4px;
+        font-size: 14px;
+        font-weight: 600;
+        color: #495057;
+        border: none;
+    }
+    .stTabs [aria-selected="true"] {
         background-color: #ffffff !important;
         color: #0d6efd !important;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05) !important;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
     }
 
-    /* 2. SIDEBAR */
+    /* 2. SIDEBAR STYLING */
     [data-testid="stSidebar"] {
         background-color: #f8f9fa;
         border-right: 1px solid #dee2e6;
     }
 
-    /* 3. METRIC CARDS */
+    /* 3. METRIC CARDS (SMALLER FONT) */
     .metric-card {
         background-color: white;
         border: 1px solid #e9ecef;
         border-radius: 8px;
-        padding: 24px;
+        padding: 20px;
         text-align: center;
         box-shadow: 0 2px 4px rgba(0,0,0,0.02);
     }
     .metric-label {
-        font-size: 11px;
+        font-size: 10px;
         font-weight: 700;
         text-transform: uppercase;
         color: #adb5bd;
-        margin-bottom: 8px;
+        margin-bottom: 5px;
         letter-spacing: 0.5px;
     }
     .metric-value {
-        font-size: 26px;
+        font-size: 20px; /* Reduced from 26px */
         font-weight: 700;
         color: #212529;
-    }
-    /* Smaller font for text-based metrics */
-    .metric-text-small {
-        font-size: 18px; 
-        font-weight: 700;
     }
 
     /* 4. GENERAL */
@@ -99,27 +95,27 @@ def preprocess_data(df, selected_columns):
 def generate_pdf(ate, lower, upper, p_val, r2, treat, out):
     pdf = FPDF()
     pdf.add_page()
-    pdf.set_font("Arial", 'B', 20)
+    pdf.set_font("Arial", 'B', 18)
     pdf.cell(0, 20, "Causal Analysis Report", ln=True, align='C')
     
-    pdf.set_font("Arial", '', 12)
-    pdf.cell(0, 10, f"Effect of {treat} on {out}", ln=True, align='C')
+    pdf.set_font("Arial", '', 11)
+    pdf.cell(0, 10, f"Analysis: Effect of '{treat}' on '{out}'", ln=True, align='C')
     pdf.ln(10)
     
-    pdf.set_font("Arial", 'B', 14)
+    pdf.set_font("Arial", 'B', 12)
     pdf.cell(0, 10, "Executive Summary", ln=True)
     
-    pdf.set_font("Arial", '', 12)
-    pdf.cell(0, 10, f"Average Treatment Effect: {ate:.4f}", ln=True)
+    pdf.set_font("Arial", '', 11)
+    pdf.cell(0, 10, f"Average Treatment Effect (ATE): {ate:.4f}", ln=True)
     pdf.cell(0, 10, f"95% Confidence Interval: [{lower:.4f}, {upper:.4f}]", ln=True)
     
     if np.isnan(p_val):
-        sig = "N/A"
+        sig_txt = "Could not calculate"
     else:
-        sig = "Significant" if p_val < 0.05 else "Not Significant"
-    
-    pdf.cell(0, 10, f"Statistical Significance: {sig} (p={p_val:.4f})", ln=True)
-    pdf.cell(0, 10, f"Model Fit (R2): {r2:.4f}", ln=True)
+        sig_txt = "Significant" if p_val < 0.05 else "Not Significant"
+        
+    pdf.cell(0, 10, f"Statistical Significance: {sig_txt} (p={p_val:.4f})", ln=True)
+    pdf.cell(0, 10, f"Model Fit (R-Squared): {r2:.4f}", ln=True)
     
     return pdf.output(dest='S').encode('latin-1')
 
@@ -161,12 +157,12 @@ def run_analysis_logic(df, treatment, outcome, controls, time_col=None, date_val
     )
     est.fit(Y, T, X=X)
     
-    # Stats Model (Robust Wrapper)
+    # Stats Model
     try:
         X_df = pd.DataFrame(X, index=df.index)
         X_df.columns = [f"V{i}" for i in range(X_df.shape[1])]
         X_ols = pd.concat([T.rename("Treat"), X_df], axis=1)
-        X_ols = sm.add_constant(X_ols)
+        X_ols = sm.add_constant(X_ols) 
         ols = sm.OLS(Y, X_ols).fit()
     except:
         ols = None
@@ -176,38 +172,40 @@ def run_analysis_logic(df, treatment, outcome, controls, time_col=None, date_val
 # --- SESSION STATE ---
 if 'results' not in st.session_state: st.session_state['results'] = None
 if 'uploaded_file' not in st.session_state: st.session_state['uploaded_file'] = None
+# We add a state variable to track the active tab based on sidebar interaction
+if 'active_tab' not in st.session_state: st.session_state['active_tab'] = "Data"
 
-# --- SIDEBAR NAV ---
+# --- SIDEBAR ---
 with st.sidebar:
-    st.header("Project Config")
+    st.header("Configuration")
     
-    # NAVIGATION (Styled as Tabs)
-    nav = st.radio("Navigation", ["Data", "Logic", "Analysis"], label_visibility="collapsed")
-    st.markdown("---")
+    # TACTICAL TABS (Data, Logic, Action)
+    # We use these tabs to control the MAIN view
+    tab_data, tab_logic, tab_run = st.tabs(["Data", "Logic", "Action"])
 
-    # 1. DATA INPUTS (Show only in Data Tab)
-    if nav == "Data":
+    # 1. DATA TAB CONTROLS
+    with tab_data:
         uploaded_file = st.file_uploader("Upload CSV", type="csv")
         if uploaded_file:
             st.session_state['uploaded_file'] = uploaded_file
             raw_df = pd.read_csv(uploaded_file)
             cols = raw_df.columns.tolist()
             st.success(f"Loaded {len(raw_df)} rows")
+            st.session_state['active_tab'] = "Data"
         else:
             cols = []
 
-    # 2. LOGIC INPUTS (Show only in Logic Tab)
-    if nav == "Logic":
-        if st.session_state['uploaded_file']:
-            # Reload df to get columns
-            raw_df = pd.read_csv(st.session_state['uploaded_file'])
-            cols = raw_df.columns.tolist()
+    # 2. LOGIC TAB CONTROLS
+    with tab_logic:
+        if uploaded_file:
+            # Set active tab to Logic when interacting here
+            st.session_state['active_tab'] = "Logic"
             
             treat_col = st.selectbox("Treatment Column", cols, index=0)
             out_col = st.selectbox("Outcome Column", cols, index=1 if len(cols)>1 else 0)
             
             st.markdown("---")
-            use_time = st.checkbox("Enable Time Dimension")
+            use_time = st.checkbox("Enable Time Logic")
             time_col, int_date = None, None
             if use_time:
                 time_col = st.selectbox("Date Column", cols)
@@ -221,42 +219,33 @@ with st.sidebar:
             excl = [treat_col, out_col]
             if time_col: excl.append(time_col)
             covs = st.multiselect("Control Variables", [c for c in cols if c not in excl])
-            
-            # Save config to session
-            st.session_state['config'] = {
-                'treat': treat_col, 'out': out_col, 'covs': covs,
-                'time': time_col, 'date': int_date
-            }
         else:
-            st.info("Please upload data in the Data tab first.")
+            st.info("Upload data first")
 
-    # 3. ANALYSIS INPUTS (Show only in Analysis Tab)
-    if nav == "Analysis":
-        if st.session_state['uploaded_file'] and 'config' in st.session_state:
+    # 3. ACTION TAB CONTROLS
+    with tab_run:
+        if uploaded_file:
+            st.session_state['active_tab'] = "Action"
+            
             run_btn = st.button("RUN ANALYSIS", type="primary", use_container_width=True)
             
             if run_btn:
-                raw_df = pd.read_csv(st.session_state['uploaded_file'])
-                cfg = st.session_state['config']
-                
-                with st.spinner("Running Causal Models..."):
-                    need = [cfg['treat'], cfg['out']] + cfg['covs']
-                    if cfg['time']: need.append(cfg['time'])
+                with st.spinner("Calculating Impact..."):
+                    need = [treat_col, out_col] + covs
+                    if time_col: need.append(time_col)
                     clean, enc = preprocess_data(raw_df, need)
                     
-                    ml, stats, X_t, T_t = run_analysis_logic(
-                        clean, cfg['treat'], cfg['out'], cfg['covs'], cfg['time'], cfg['date']
-                    )
+                    ml, stats, X_t, T_t = run_analysis_logic(clean, treat_col, out_col, covs, time_col, int_date)
                     
                     if ml:
                         st.session_state['results'] = {
                             'ml': ml, 'stats': stats, 'X': X_t, 'df': clean,
-                            'treat': cfg['treat'], 'out': cfg['out']
+                            'treat': treat_col, 'out': out_col
                         }
             
-            # PDF DOWNLOAD
             if st.session_state['results']:
                 res = st.session_state['results']
+                
                 # Safe stats extraction
                 ate = res['ml'].ate(res['X'])
                 l, u = res['ml'].ate_interval(res['X'])
@@ -278,26 +267,21 @@ with st.sidebar:
                     mime="application/pdf",
                     use_container_width=True
                 )
-        else:
-            st.info("Configure logic in the Logic tab first.")
 
-# --- MAIN PAGE CONTENT ---
-
+# --- MAIN PAGE RENDERING ---
 st.title("Causal Inference Portal")
 
-# VIEW 1: DATA TABLE
-if nav == "Data":
+# VIEW 1: DATA (TABLE ONLY)
+if st.session_state['active_tab'] == "Data":
     if st.session_state['uploaded_file']:
-        df = pd.read_csv(st.session_state['uploaded_file'])
-        st.subheader(f"Data Preview ({len(df)} rows)")
-        st.dataframe(df.head(100), use_container_width=True)
+        st.subheader("Data Inspector")
+        st.dataframe(raw_df.head(100), use_container_width=True)
     else:
-        st.info("Upload a CSV file in the sidebar to view data.")
+        st.info("Upload a CSV file in the sidebar Data tab.")
 
-# VIEW 2: LOGIC FLOWCHART
-if nav == "Logic":
-    if 'config' in st.session_state:
-        cfg = st.session_state['config']
+# VIEW 2: LOGIC (FLOWCHART ONLY)
+elif st.session_state['active_tab'] == "Logic":
+    if st.session_state['uploaded_file']:
         st.subheader("Logic Visualization")
         
         g = graphviz.Digraph()
@@ -305,21 +289,21 @@ if nav == "Logic":
         g.attr('node', fontname='Helvetica', shape='box', style='filled', color='white', fontcolor='#333')
         g.attr('edge', fontname='Helvetica', color='#adb5bd')
         
-        g.node('T', f'Intervention\n{cfg["treat"]}', fillcolor='#d1e7dd', color='#0f5132', fontcolor='#0f5132')
-        g.node('O', f'Outcome\n{cfg["out"]}', fillcolor='#cfe2ff', color='#084298', fontcolor='#084298')
+        g.node('T', f'Intervention\n{treat_col}', fillcolor='#d1e7dd', color='#0f5132', fontcolor='#0f5132')
+        g.node('O', f'Outcome\n{out_col}', fillcolor='#cfe2ff', color='#084298', fontcolor='#084298')
         g.edge('T', 'O', label=' Impact ')
         
-        if cfg['covs']:
+        if covs:
             g.node('C', 'Controls', shape='ellipse', fillcolor='#fff3cd', color='#856404', fontcolor='#856404')
             g.edge('C', 'T', style='dashed', dir='none')
             g.edge('C', 'O', style='dashed', dir='none')
             
         st.graphviz_chart(g)
     else:
-        st.info("Configure variables in the sidebar to see the logic flow.")
+        st.warning("Upload data first.")
 
-# VIEW 3: RESULTS
-if nav == "Analysis":
+# VIEW 3: ACTION (RESULTS ONLY)
+elif st.session_state['active_tab'] == "Action":
     if st.session_state['results']:
         res = st.session_state['results']
         ml, stats = res['ml'], res['stats']
@@ -327,13 +311,12 @@ if nav == "Analysis":
         ate = ml.ate(res['X'])
         l, u = ml.ate_interval(res['X'])
         
-        # Robust P-value check
         if stats and "Treat" in stats.pvalues:
             p = stats.pvalues["Treat"]
             r2 = stats.rsquared
             is_sig = p < 0.05
             sig_color = "#198754" if is_sig else "#dc3545"
-            sig_text = "SIGNIFICANT" if is_sig else "INCONCLUSIVE"
+            sig_text = "Significant" if is_sig else "Inconclusive"
         else:
             p = np.nan
             r2 = 0.0
@@ -345,25 +328,23 @@ if nav == "Analysis":
         c1, c2, c3, c4 = st.columns(4)
         with c1: st.markdown(f'<div class="metric-card"><div class="metric-label">Average Impact</div><div class="metric-value">{ate:.2f}</div></div>', unsafe_allow_html=True)
         with c2: st.markdown(f'<div class="metric-card"><div class="metric-label">95% Range</div><div class="metric-value">[{l:.2f}, {u:.2f}]</div></div>', unsafe_allow_html=True)
-        # Reduced font size for text metrics using 'metric-text-small' class
-        with c3: st.markdown(f'<div class="metric-card"><div class="metric-label">Certainty</div><div class="metric-value metric-text-small" style="color:{sig_color}">{sig_text}</div></div>', unsafe_allow_html=True)
+        with c3: st.markdown(f'<div class="metric-card"><div class="metric-label">Certainty</div><div class="metric-value" style="color:{sig_color}">{sig_text}</div></div>', unsafe_allow_html=True)
         with c4: st.markdown(f'<div class="metric-card"><div class="metric-label">Model Fit (R2)</div><div class="metric-value">{r2:.2f}</div></div>', unsafe_allow_html=True)
         
         st.markdown("---")
         
-        # Charts
-        tab1, tab2 = st.tabs(["Impact Distribution", "Stats Table"])
+        t1, t2 = st.tabs(["Impact Distribution", "Stats Table"])
         res['df']['Impact'] = ml.effect(res['X'])
         
-        with tab1:
-            fig = px.histogram(res['df'], x='Impact', nbins=50, title="Population Impact Distribution", color_discrete_sequence=['#0d6efd'])
+        with t1:
+            fig = px.histogram(res['df'], x='Impact', nbins=50, title="Impact Distribution", color_discrete_sequence=['#0d6efd'])
             fig.update_layout(plot_bgcolor='white', margin=dict(l=20, r=20, t=40, b=20))
             fig.add_vline(x=0, line_dash="dash", line_color="black")
             st.plotly_chart(fig, use_container_width=True)
-        with tab2:
+        with t2:
             if stats:
                 st.text(stats.summary())
             else:
-                st.warning("Statistical details unavailable (Singular Matrix or Collinearity).")
+                st.warning("Statistical model unavailable.")
     else:
-        st.info("Click 'RUN ANALYSIS' in the sidebar to generate results.")
+        st.info("Configure logic and click Run Analysis in the sidebar.")
