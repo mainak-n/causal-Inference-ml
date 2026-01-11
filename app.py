@@ -630,9 +630,17 @@ if st.session_state['active_tab'] == "Data":
         st.markdown("""
         | Date (Opt) | Treatment (0/1) | Outcome ($) | Control 1 |
         | :--- | :--- | :--- | :--- |
-        | 2023-01-01 | 1 | 120.50 | North |
-        | 2023-01-02 | 0 | 85.00 | South |
+        | 02-01-2023 | 1 | 120.50 | North |
+        | 25-02-2023 | 0 | 85.00 | South |
         """)
+        st.markdown("""
+        <div style="margin-top: 20px; color: #31333F; line-height: 1.8;">
+        1. <b>Time: DD-MM-YYYY</b>  (For time-based analysis.)<br>
+        2. <b>Treatment Column:</b> 0 or 1 (Who got the intervention?)<br>
+        3. <b>Outcome Column:</b> Numeric (Sales, clicks, retention)<br>
+        4. <b>Control Variables:</b> User attributes (Age, Region, etc.)
+        </div>
+        """, unsafe_allow_html=True)
 
 elif st.session_state['active_tab'] == "Logic":
     if st.session_state['uploaded_file']:
