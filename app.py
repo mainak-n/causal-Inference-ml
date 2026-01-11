@@ -490,9 +490,14 @@ with st.sidebar:
             if use_time:
                 time_col = st.selectbox("Date Column", cols)
                 try:
-                    min_d = pd.to_datetime(raw_df[time_col]).min()
-                    max_d = pd.to_datetime(raw_df[time_col]).max()
-                    int_date = st.date_input("Intervention Date", value=min_d, min_value=min_d, max_value=max_d)
+                    # FIX: Convert Timestamp to date() to prevent Streamlit error
+                    min_d = pd.to_datetime(raw_df[time_col]).min().date()
+                    max_d = pd.to_datetime(raw_df[time_col]).max().date()
+                    
+                    # Ensure value is safe
+                    default_d = min_d + (max_d - min_d) // 2
+                    
+                    int_date = st.date_input("Intervention Date", value=default_d, min_value=min_d, max_value=max_d)
                 except:
                     int_date = st.text_input("Intervention Value")
             
