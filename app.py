@@ -11,6 +11,7 @@ import graphviz
 from datetime import datetime
 import matplotlib.pyplot as plt
 import tempfile
+import os
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
@@ -110,6 +111,40 @@ css = """
     .info-text { font-size: 16px; color: #6c757d; line-height: 1.6; }
     .info-list { text-align: left; display: inline-block; margin-top: 20px; color: #495057; }
 
+    /* 6. INSIGHT BOX */
+    .insight-box {
+        background-color: #f8f9fa;
+        border-left: 4px solid #0d6efd;
+        padding: 15px;
+        border-radius: 4px;
+        margin-bottom: 20px;
+        font-size: 14px;
+        color: #495057;
+    }
+
+    /* 7. METRIC CARDS */
+    .metric-card {
+        background-color: white;
+        border: 1px solid #e9ecef;
+        border-radius: 8px;
+        padding: 20px;
+        text-align: center;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+    }
+    .metric-label {
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        color: #adb5bd;
+        margin-bottom: 5px;
+        letter-spacing: 0.5px;
+    }
+    .metric-value {
+        font-size: 20px;
+        font-weight: 700;
+        color: #212529;
+    }
+
     h1, h2, h3 { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #212529; }
     </style>
     
@@ -118,7 +153,6 @@ css = """
     </div>
 """
 
-# Dynamic CSS for Uploader
 if st.session_state['uploaded_file'] is None:
     css += """
     <style>
@@ -190,12 +224,12 @@ def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist):
     pdf.cell(95, 10, f"95% CI: [{lower:.4f}, {upper:.4f}]", border=1, ln=True)
     pdf.ln(10)
     
-    # 2. Visual Impact Distribution (Matplotlib)
+    # 2. Visual Impact Distribution
     pdf.set_font("Arial", 'B', 14)
     pdf.cell(0, 10, "2. Impact Distribution (Visual)", ln=True, fill=True)
     pdf.ln(2)
     
-    # Generate Chart
+    # Generate Chart using Matplotlib
     plt.figure(figsize=(6, 3))
     plt.hist(impact_dist, bins=30, color='#0d6efd', alpha=0.7, edgecolor='black')
     plt.axvline(x=0, color='red', linestyle='--')
@@ -212,6 +246,10 @@ def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist):
     # Embed in PDF
     pdf.image(tmp_path, x=10, w=190)
     pdf.ln(5)
+    
+    # Remove temp file
+    if os.path.exists(tmp_path):
+        os.remove(tmp_path)
     
     # Stats Text
     pdf.set_font("Arial", '', 10)
@@ -325,7 +363,6 @@ with st.sidebar:
                 except:
                     int_date = st.text_input("Intervention Value")
             
-            # SEPARATOR LINE AS REQUESTED
             st.markdown("---")
             
             t_num, t_cat = st.tabs(["123 Numerical", "Abc Categorical"])
@@ -348,57 +385,56 @@ with st.sidebar:
 
     # 3. ACTION TAB
     with tab_run:
-        # RUN BUTTON
-        if st.button("RUN NEW ANALYSIS", type="primary", use_container_width=True):
-            st.session_state['active_tab'] = "Action"
-            try:
-                with st.spinner("Calculating Impact..."):
-                    prep_df = raw_df.copy()
-                    if use_time and time_col and int_date:
-                        try:
-                            ts = pd.to_datetime(prep_df[time_col])
-                            ids = pd.to_datetime(int_date)
-                            prep_df['Is_Post'] = (ts >= ids).astype(int)
-                        except:
-                            prep_df['Is_Post'] = 0
-                    
-                    need = [treat_col, out_col] + covs
-                    if 'Is_Post' in prep_df.columns: need.append('Is_Post')
-                    
-                    clean, enc = preprocess_data(prep_df, need, cats)
-                    ml, stats, X_t, T_t, feats = run_analysis_logic(clean, treat_col, out_col, covs)
-                    
-                    if ml:
-                        st.session_state['results'] = {
-                            'ml': ml, 'stats': stats, 'X': X_t, 'df': clean,
-                            'treat': treat_col, 'out': out_col, 'feats': feats
-                        }
-            except ValueError as ve:
-                st.error(str(ve))
-            except Exception as e:
-                st.error(f"Analysis Failed: {e}")
-        
-        # SHOW PREVIOUS BUTTON (Only if analysis exists AND we are NOT on Action tab)
-        if st.session_state['results'] is not None and st.session_state['active_tab'] != "Action":
-             st.button("Show Previous Analysis", type="secondary", use_container_width=True, on_click=set_view, args=("Action",))
-        
-        st.button("Reset / Stop Analysis", type="secondary", use_container_width=True, on_click=reset_analysis)
-        
-        if st.session_state['results']:
-            res = st.session_state['results']
-            ate = res['ml'].ate(res['X'])
-            l, u = res['ml'].ate_interval(res['X'])
+        if uploaded_file:
+            if st.button("RUN NEW ANALYSIS", type="primary", use_container_width=True):
+                st.session_state['active_tab'] = "Action"
+                try:
+                    with st.spinner("Calculating Impact..."):
+                        prep_df = raw_df.copy()
+                        if use_time and time_col and int_date:
+                            try:
+                                ts = pd.to_datetime(prep_df[time_col])
+                                ids = pd.to_datetime(int_date)
+                                prep_df['Is_Post'] = (ts >= ids).astype(int)
+                            except:
+                                prep_df['Is_Post'] = 0
+                        
+                        need = [treat_col, out_col] + covs
+                        if 'Is_Post' in prep_df.columns: need.append('Is_Post')
+                        
+                        clean, enc = preprocess_data(prep_df, need, cats)
+                        ml, stats, X_t, T_t, feats = run_analysis_logic(clean, treat_col, out_col, covs)
+                        
+                        if ml:
+                            st.session_state['results'] = {
+                                'ml': ml, 'stats': stats, 'X': X_t, 'df': clean,
+                                'treat': treat_col, 'out': out_col, 'feats': feats
+                            }
+                except ValueError as ve:
+                    st.error(str(ve))
+                except Exception as e:
+                    st.error(f"Analysis Failed: {e}")
             
-            if res['stats'] and "Treat" in res['stats'].pvalues:
-                p = res['stats'].pvalues["Treat"]
-                r2 = res['stats'].rsquared
-            else:
-                p = np.nan
-                r2 = 0.0
+            if st.session_state['results'] is not None and st.session_state['active_tab'] != "Action":
+                 st.button("Show Previous Analysis", type="secondary", use_container_width=True, on_click=set_view, args=("Action",))
             
-            impact_dist = res['ml'].effect(res['X'])
-            pdf_data = generate_pdf(ate, l, u, p, r2, res['treat'], res['out'], res['feats'], pd.Series(impact_dist))
-            st.download_button("DOWNLOAD PDF REPORT", pdf_data, "causal_report.pdf", "application/pdf", use_container_width=True)
+            st.button("Reset / Stop Analysis", type="secondary", use_container_width=True, on_click=reset_analysis)
+            
+            if st.session_state['results']:
+                res = st.session_state['results']
+                ate = res['ml'].ate(res['X'])
+                l, u = res['ml'].ate_interval(res['X'])
+                
+                if res['stats'] and "Treat" in res['stats'].pvalues:
+                    p = res['stats'].pvalues["Treat"]
+                    r2 = res['stats'].rsquared
+                else:
+                    p = np.nan
+                    r2 = 0.0
+                
+                impact_dist = res['ml'].effect(res['X'])
+                pdf_data = generate_pdf(ate, l, u, p, r2, res['treat'], res['out'], res['feats'], pd.Series(impact_dist))
+                st.download_button("DOWNLOAD PDF REPORT", pdf_data, "causal_report.pdf", "application/pdf", use_container_width=True)
 
 # --- MAIN PAGE ---
 
@@ -407,7 +443,6 @@ if st.session_state['active_tab'] == "Data":
         st.subheader("Data Inspector")
         st.dataframe(raw_df.head(100), use_container_width=True)
     else:
-        # HELP TEXT WHEN EMPTY
         st.markdown("""
         <div class="main-info-box">
             <div class="info-icon">👋</div>
