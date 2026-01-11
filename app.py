@@ -97,71 +97,7 @@ css = """
         box-shadow: 0 1px 2px rgba(0,0,0,0.1);
     }
 
-    /* 5. MAIN INFO BOX */
-    .main-info-box {
-        background-color: #ffffff;
-        border: 1px solid #e0e0e0;
-        border-radius: 10px;
-        padding: 40px;
-        text-align: left;
-        max-width: 800px;
-        margin: 0 auto;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-    }
-    .info-header { 
-        font-size: 24px; 
-        font-weight: 700; 
-        color: #31333F; 
-        margin-bottom: 15px; 
-        text-align: center;
-    }
-    .info-text { 
-        font-size: 16px; 
-        color: #555; 
-        line-height: 1.6; 
-        margin-bottom: 25px;
-    }
-    .info-subhead {
-        font-weight: 600;
-        color: #31333F;
-        font-size: 16px;
-        margin-bottom: 15px;
-        margin-top: 30px;
-    }
-    .info-list { 
-        color: #31333F; 
-        line-height: 1.8;
-        font-size: 15px;
-        margin-top: 20px;
-    }
-    
-    /* TABLE STYLE */
-    .example-table {
-        width: 100%;
-        border-collapse: collapse;
-        font-size: 14px;
-        font-family: "Source Sans Pro", sans-serif;
-        color: #333;
-        background-color: #fff;
-        border: 1px solid #e0e0e0;
-    }
-    .example-table th {
-        background-color: #f8f9fa;
-        color: #555;
-        font-weight: 600;
-        text-align: left;
-        padding: 12px;
-        border-bottom: 2px solid #e0e0e0;
-    }
-    .example-table td {
-        padding: 10px 12px;
-        border-bottom: 1px solid #f0f0f0;
-    }
-    .example-table tr:last-child td {
-        border-bottom: none;
-    }
-
-    /* 6. METRIC CARDS */
+    /* 5. METRIC CARDS */
     div.metric-container {
         background-color: #ffffff;
         border: 1px solid #e0e0e0;
@@ -185,7 +121,7 @@ css = """
         color: #31333F;
     }
     
-    /* 7. INSIGHT BOX */
+    /* 6. INSIGHT BOX */
     .insight-box {
         background-color: #f8f9fa;
         border-left: 4px solid #ff4b4b;
@@ -286,90 +222,94 @@ def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist, g
     pdf = FPDF()
     pdf.add_page()
     
-    # Fonts Reduced by ~2 points
+    # 30% Smaller Fonts
     
     # Header
-    pdf.set_font("Arial", 'B', 16) # Was 20
-    pdf.cell(0, 15, "Causal Analysis Report", ln=True, align='C')
-    pdf.set_font("Arial", '', 8)   # Was 10
-    pdf.cell(0, 8, f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M')}", ln=True, align='C')
+    pdf.set_font("Arial", 'B', 16) 
+    pdf.cell(0, 10, "Causal Analysis Report", ln=True, align='C')
+    pdf.set_font("Arial", '', 8)
+    pdf.cell(0, 5, f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M')}", ln=True, align='C')
     pdf.ln(5)
     
     # 1. Executive Summary
-    pdf.set_font("Arial", 'B', 12) # Was 14
+    pdf.set_font("Arial", 'B', 11) # Reduced from 14
     pdf.set_fill_color(240, 240, 240)
-    pdf.cell(0, 8, "1. Executive Summary", ln=True, fill=True)
-    pdf.ln(3)
+    pdf.cell(0, 7, "1. Executive Summary", ln=True, fill=True)
+    pdf.ln(2)
     
-    pdf.set_font("Arial", '', 10) # Was 11
-    pdf.cell(0, 6, f"Intervention Variable: {treat}", ln=True)
-    pdf.cell(0, 6, f"Target Outcome: {out}", ln=True)
-    pdf.ln(3)
+    pdf.set_font("Arial", '', 9) # Reduced from 11
+    pdf.cell(0, 5, f"Intervention Variable: {treat}", ln=True)
+    pdf.cell(0, 5, f"Target Outcome: {out}", ln=True)
+    pdf.ln(2)
     
-    pdf.set_font("Arial", 'B', 10) # Was 12
-    pdf.cell(95, 8, f"Average Impact (ATE): {ate:.4f}", border=1)
-    pdf.cell(95, 8, f"Model Fit (R2): {r2:.4f}", border=1, ln=True)
+    pdf.set_font("Arial", 'B', 9) # Reduced from 12
+    pdf.cell(95, 7, f"Average Impact (ATE): {ate:.4f}", border=1)
+    pdf.cell(95, 7, f"Model Fit (R2): {r2:.4f}", border=1, ln=True)
     
     sig_txt = "Significant (p < 0.05)" if p_val < 0.05 else "Not Significant"
-    pdf.cell(95, 8, f"Significance: {sig_txt}", border=1)
-    pdf.cell(95, 8, f"95% CI: [{lower:.4f}, {upper:.4f}]", border=1, ln=True)
-    pdf.ln(8)
+    pdf.cell(95, 7, f"Significance: {sig_txt}", border=1)
+    pdf.cell(95, 7, f"95% CI: [{lower:.4f}, {upper:.4f}]", border=1, ln=True)
+    pdf.ln(6)
     
     # 2. Logic Flowchart
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(0, 8, "2. Logic Configuration (Flowchart)", ln=True, fill=True)
+    pdf.set_font("Arial", 'B', 11)
+    pdf.cell(0, 7, "2. Logic Configuration (Flowchart)", ln=True, fill=True)
     pdf.ln(3)
     
     try:
         g_pdf = create_logic_graph(**graph_config)
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp_g:
             g_pdf.render(filename=tmp_g.name.replace('.png', ''), format='png', cleanup=True)
-            pdf.image(tmp_g.name, x=10, w=170) # Width slightly reduced to fit page
+            # Reduced Width by 30% (from 170 to 120)
+            pdf.image(tmp_g.name, x=10, w=120) 
     except Exception as e:
         pdf.set_font("Arial", 'I', 8)
-        pdf.cell(0, 8, "Note: To render flowchart, ensure 'graphviz' is in packages.txt", ln=True)
+        pdf.cell(0, 6, "Note: To render flowchart, ensure 'graphviz' is in packages.txt", ln=True)
     pdf.ln(5)
 
     # 3. Visual Impact Distribution
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(0, 8, "3. Impact Distribution", ln=True, fill=True)
+    pdf.set_font("Arial", 'B', 11)
+    pdf.cell(0, 7, "3. Impact Distribution", ln=True, fill=True)
     pdf.ln(3)
     
-    plt.figure(figsize=(6, 3))
+    plt.figure(figsize=(5, 2.5)) # Smaller Figure
     plt.hist(impact_dist, bins=30, color='#0d6efd', alpha=0.7, edgecolor='black')
     plt.axvline(x=0, color='red', linestyle='--')
-    plt.title("Distribution of Causal Impact", fontsize=10)
-    plt.xlabel("Impact Value", fontsize=8)
-    plt.ylabel("Frequency", fontsize=8)
+    plt.title("Distribution of Causal Impact", fontsize=9)
+    plt.xlabel("Impact Value", fontsize=7)
+    plt.ylabel("Frequency", fontsize=7)
+    plt.xticks(fontsize=6)
+    plt.yticks(fontsize=6)
     plt.tight_layout()
     
     with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp_p:
         plt.savefig(tmp_p.name, format="png", dpi=100)
-        pdf.image(tmp_p.name, x=10, w=170)
+        # Reduced Width by 30%
+        pdf.image(tmp_p.name, x=10, w=120)
     pdf.ln(3)
     
     pdf.set_font("Arial", '', 8)
     pdf.cell(0, 5, f"Min: {impact_dist.min():.2f} | Max: {impact_dist.max():.2f} | Median: {impact_dist.median():.2f}", ln=True)
-    pdf.ln(8)
+    pdf.ln(6)
 
     # 4. Top Drivers
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(0, 8, "4. Top Drivers of Impact", ln=True, fill=True)
+    pdf.set_font("Arial", 'B', 11)
+    pdf.cell(0, 7, "4. Top Drivers of Impact", ln=True, fill=True)
     pdf.ln(3)
     
-    pdf.set_font("Arial", '', 10)
+    pdf.set_font("Arial", '', 9)
     if not feats.empty:
-        pdf.cell(0, 6, "Most influential variables:", ln=True)
+        pdf.cell(0, 5, "Most influential variables:", ln=True)
         pdf.ln(2)
-        pdf.set_font("Arial", 'B', 9) # Table header smaller
-        pdf.cell(140, 6, "Variable Name", border=1)
-        pdf.cell(50, 6, "Importance Score", border=1, ln=True)
-        pdf.set_font("Arial", '', 9) # Table body smaller
+        pdf.set_font("Arial", 'B', 8) # Table header smaller
+        pdf.cell(120, 6, "Variable Name", border=1) # Reduced width
+        pdf.cell(40, 6, "Importance", border=1, ln=True)
+        pdf.set_font("Arial", '', 8) # Table body smaller
         for index, row in feats.head(8).iterrows():
-            pdf.cell(140, 6, str(row['Feature']), border=1)
-            pdf.cell(50, 6, f"{row['Importance']:.4f}", border=1, ln=True)
+            pdf.cell(120, 6, str(row['Feature']), border=1)
+            pdf.cell(40, 6, f"{row['Importance']:.4f}", border=1, ln=True)
     else:
-        pdf.cell(0, 6, "No control variables were used.", ln=True)
+        pdf.cell(0, 5, "No control variables were used.", ln=True)
         
     return pdf.output(dest='S').encode('latin-1')
 
@@ -543,46 +483,33 @@ if st.session_state['active_tab'] == "Data":
         st.subheader("Data Inspector")
         st.dataframe(raw_df.head(100), use_container_width=True)
     else:
+        # Use single block for clean HTML rendering
         st.markdown("""
-        <div class="main-info-box">
-            <div class="info-header">Welcome to the Causal Inference Portal</div>
-            <div class="info-text">
+        <div style="background-color: #ffffff; border: 1px solid #e0e0e0; border-radius: 10px; padding: 40px; text-align: left; max-width: 800px; margin: 0 auto; box-shadow: 0 4px 12px rgba(0,0,0,0.05);">
+            <div style="font-size: 24px; font-weight: 700; color: #31333F; margin-bottom: 15px; text-align: center;">Welcome to the Causal Inference Portal</div>
+            <div style="font-size: 16px; color: #555; line-height: 1.6; margin-bottom: 25px;">
                 This tool allows you to measure the <b>true impact</b> of interventions (like marketing campaigns, feature launches, or policy changes) by separating cause from correlation using advanced <b>Double Machine Learning</b>.
             </div>
             
-            <div class="info-subhead">📋 Required Data Format (CSV):</div>
-            <table class="example-table">
+            <div style="font-weight: 600; color: #31333F; font-size: 16px; margin-bottom: 15px;">📋 Required Data Format (CSV):</div>
+            
+            <table style="width: 100%; border-collapse: collapse; font-size: 14px; margin-bottom: 20px;">
                 <thead>
-                    <tr>
-                        <th>Treatment (0/1)</th>
-                        <th>Outcome ($)</th>
-                        <th>Control 1 (Age)</th>
-                        <th>Control 2 (Region)</th>
+                    <tr style="background-color: #f8f9fa;">
+                        <th style="padding: 10px; border-bottom: 2px solid #e0e0e0; text-align: left;">Treatment (0/1)</th>
+                        <th style="padding: 10px; border-bottom: 2px solid #e0e0e0; text-align: left;">Outcome ($)</th>
+                        <th style="padding: 10px; border-bottom: 2px solid #e0e0e0; text-align: left;">Control 1 (Age)</th>
+                        <th style="padding: 10px; border-bottom: 2px solid #e0e0e0; text-align: left;">Control 2 (Region)</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <tr>
-                        <td>1</td>
-                        <td>120.50</td>
-                        <td>25</td>
-                        <td>North</td>
-                    </tr>
-                    <tr>
-                        <td>0</td>
-                        <td>85.00</td>
-                        <td>32</td>
-                        <td>South</td>
-                    </tr>
-                    <tr>
-                        <td>1</td>
-                        <td>135.20</td>
-                        <td>45</td>
-                        <td>East</td>
-                    </tr>
+                    <tr><td style="padding: 8px; border-bottom: 1px solid #eee;">1</td><td style="padding: 8px; border-bottom: 1px solid #eee;">120.50</td><td style="padding: 8px; border-bottom: 1px solid #eee;">25</td><td style="padding: 8px; border-bottom: 1px solid #eee;">North</td></tr>
+                    <tr><td style="padding: 8px; border-bottom: 1px solid #eee;">0</td><td style="padding: 8px; border-bottom: 1px solid #eee;">85.00</td><td style="padding: 8px; border-bottom: 1px solid #eee;">32</td><td style="padding: 8px; border-bottom: 1px solid #eee;">South</td></tr>
+                    <tr><td style="padding: 8px; border-bottom: 1px solid #eee;">1</td><td style="padding: 8px; border-bottom: 1px solid #eee;">135.20</td><td style="padding: 8px; border-bottom: 1px solid #eee;">45</td><td style="padding: 8px; border-bottom: 1px solid #eee;">East</td></tr>
                 </tbody>
             </table>
             
-            <div class="info-list">
+            <div style="font-size: 15px; color: #31333F; line-height: 1.8;">
                 1. <b>Treatment Column:</b> 0 or 1 (Who got the intervention?)<br>
                 2. <b>Outcome Column:</b> Numeric (Sales, clicks, retention)<br>
                 3. <b>Control Variables:</b> User attributes (Age, Region, etc.)
