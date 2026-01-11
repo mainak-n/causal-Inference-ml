@@ -16,25 +16,64 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# --- STATE MANAGEMENT (Must be at top) ---
+if 'results' not in st.session_state: st.session_state['results'] = None
+if 'uploaded_file' not in st.session_state: st.session_state['uploaded_file'] = None
+if 'active_tab' not in st.session_state: st.session_state['active_tab'] = "Data"
+
+def set_view(view_name):
+    """Callback to switch views instantly"""
+    st.session_state['active_tab'] = view_name
+
 # --- PROFESSIONAL CSS ---
 st.markdown("""
     <style>
-    /* 1. FORCE TABS TO FILL WIDTH */
+    /* 1. FIXED & STYLED HEADER */
+    .header-container {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        background-color: #ffffff;
+        z-index: 9999;
+        padding: 15px 80px; /* Adjust padding to align with streamlit layout */
+        border-bottom: 1px solid #e0e0e0;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+    }
+    .header-title {
+        font-family: 'Inter', sans-serif;
+        font-size: 24px;
+        font-weight: 800;
+        color: #1f2937;
+        margin: 0;
+    }
+    .header-subtitle {
+        font-size: 14px;
+        color: #6b7280;
+        margin: 0;
+    }
+    
+    /* Push main content down so it doesn't hide behind the fixed header */
+    .block-container {
+        padding-top: 5rem !important;
+    }
+
+    /* 2. FORCE TABS TO FILL WIDTH */
     .stTabs [data-baseweb="tab-list"] {
         display: flex;
         width: 100%;
         gap: 2px;
         background-color: #f8f9fa;
-        padding: 5px;
+        padding: 4px;
         border-radius: 6px;
     }
     .stTabs [data-baseweb="tab"] {
         flex-grow: 1;
         justify-content: center;
-        height: 45px;
+        height: 40px;
         background-color: transparent;
         border-radius: 4px;
-        font-size: 14px;
+        font-size: 13px;
         font-weight: 600;
         color: #495057;
         border: none;
@@ -42,16 +81,17 @@ st.markdown("""
     .stTabs [aria-selected="true"] {
         background-color: #ffffff !important;
         color: #0d6efd !important;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        box-shadow: 0 1px 2px rgba(0,0,0,0.1);
     }
 
-    /* 2. SIDEBAR STYLING */
+    /* 3. SIDEBAR STYLING */
     [data-testid="stSidebar"] {
         background-color: #f8f9fa;
         border-right: 1px solid #dee2e6;
+        padding-top: 1rem;
     }
 
-    /* 3. METRIC CARDS */
+    /* 4. METRIC CARDS */
     .metric-card {
         background-color: white;
         border: 1px solid #e9ecef;
@@ -74,10 +114,15 @@ st.markdown("""
         color: #212529;
     }
 
-    /* 4. GENERAL */
-    h1, h2, h3 { font-family: 'Helvetica Neue', sans-serif; color: #212529; }
+    /* General */
+    h1, h2, h3 { font-family: 'Inter', sans-serif; color: #212529; }
     .stDataFrame { border: 1px solid #dee2e6; }
     </style>
+    
+    <div class="header-container">
+        <p class="header-title">Causal Inference Portal</p>
+        <p class="header-subtitle">Advanced Double Machine Learning & Statistical Analysis</p>
+    </div>
     """, unsafe_allow_html=True)
 
 # --- HELPER FUNCTIONS ---
@@ -149,7 +194,6 @@ def run_analysis_logic(df, treatment, outcome, controls, time_col=None, date_val
     else:
         T = df[treatment]
 
-    # ML Model
     est = CausalForestDML(
         model_y=RandomForestRegressor(n_estimators=50, max_depth=6),
         model_t=RandomForestClassifier(n_estimators=50, max_depth=6),
@@ -157,7 +201,6 @@ def run_analysis_logic(df, treatment, outcome, controls, time_col=None, date_val
     )
     est.fit(Y, T, X=X)
     
-    # Stats Model
     try:
         X_df = pd.DataFrame(X, index=df.index)
         X_df.columns = [f"V{i}" for i in range(X_df.shape[1])]
@@ -169,24 +212,18 @@ def run_analysis_logic(df, treatment, outcome, controls, time_col=None, date_val
     
     return est, ols, X, T
 
-# --- SESSION STATE ---
-if 'results' not in st.session_state: st.session_state['results'] = None
-if 'uploaded_file' not in st.session_state: st.session_state['uploaded_file'] = None
-if 'active_tab' not in st.session_state: st.session_state['active_tab'] = "Data"
-
 # --- SIDEBAR ---
 with st.sidebar:
-    st.header("Configuration")
+    st.markdown("<br>", unsafe_allow_html=True) # Spacer for fixed header
     
     # TACTICAL TABS
     tab_data, tab_logic, tab_run = st.tabs(["Data", "Logic", "Action"])
 
     # 1. DATA TAB
     with tab_data:
-        # Smart Button: Red (Primary) if not on Data view, White (Secondary) if on Data view
+        # BUTTON FIX: Use on_click callback for instant update
         btn_type = "primary" if st.session_state['active_tab'] != "Data" else "secondary"
-        if st.button("Show Table View", type=btn_type, use_container_width=True):
-            st.session_state['active_tab'] = "Data"
+        st.button("Show Table View", type=btn_type, use_container_width=True, on_click=set_view, args=("Data",))
             
         uploaded_file = st.file_uploader("Upload CSV", type="csv")
         if uploaded_file:
@@ -199,10 +236,9 @@ with st.sidebar:
 
     # 2. LOGIC TAB
     with tab_logic:
-        # Smart Button: Red (Primary) if not on Logic view, White (Secondary) if on Logic view
+        # BUTTON FIX: Use on_click callback
         btn_type = "primary" if st.session_state['active_tab'] != "Logic" else "secondary"
-        if st.button("Visualize Logic Flow", type=btn_type, use_container_width=True):
-            st.session_state['active_tab'] = "Logic"
+        st.button("Visualize Logic Flow", type=btn_type, use_container_width=True, on_click=set_view, args=("Logic",))
             
         if uploaded_file:
             treat_col = st.selectbox("Treatment Column", cols, index=0)
@@ -229,7 +265,7 @@ with st.sidebar:
     # 3. ACTION TAB
     with tab_run:
         if uploaded_file:
-            # Main Run Button
+            # We don't use on_click here because we need to run complex logic inside the button
             if st.button("RUN ANALYSIS", type="primary", use_container_width=True):
                 st.session_state['active_tab'] = "Action"
                 with st.spinner("Calculating Impact..."):
@@ -245,7 +281,6 @@ with st.sidebar:
                             'treat': treat_col, 'out': out_col
                         }
             
-            # PDF Download (No lines before it)
             if st.session_state['results']:
                 res = st.session_state['results']
                 ate = res['ml'].ate(res['X'])
@@ -260,7 +295,6 @@ with st.sidebar:
                 
                 pdf_data = generate_pdf(ate, l, u, p, r2, res['treat'], res['out'])
                 
-                # Removed st.markdown("---") line
                 st.download_button(
                     label="DOWNLOAD PDF REPORT",
                     data=pdf_data,
@@ -270,7 +304,6 @@ with st.sidebar:
                 )
 
 # --- MAIN PAGE RENDERING ---
-st.title("Causal Inference Portal")
 
 # VIEW 1: DATA
 if st.session_state['active_tab'] == "Data":
