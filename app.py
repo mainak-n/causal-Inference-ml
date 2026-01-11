@@ -543,7 +543,7 @@ with st.sidebar:
                     min_d = temp_dates.min().date()
                     max_d = temp_dates.max().date()
                     default_d = min_d + (max_d - min_d) // 2
-                    int_date = st.date_input("Intervention Date", value=default_d, min_value=min_d, max_value=max_d)
+                    int_date = st.date_input("Intervention Date", value=default_d, min_value=min_d, max_value=max_d, format="DD/MM/YYYY")
                 except:
                     int_date = st.text_input("Intervention Value")
             
@@ -583,7 +583,7 @@ with st.sidebar:
                         # Handle DiD Logic
                         if use_time and time_col and int_date:
                             try:
-                                ids = pd.to_datetime(int_date)
+                                ids = pd.to_datetime(int_date, dayfirst=True)
                                 prep_df['Is_Post'] = (prep_df[time_col] >= ids).astype(int)
                             except:
                                 prep_df['Is_Post'] = 0
