@@ -22,64 +22,77 @@ if 'uploaded_file' not in st.session_state: st.session_state['uploaded_file'] = 
 if 'active_tab' not in st.session_state: st.session_state['active_tab'] = "Data"
 
 def set_view(view_name):
-    """Callback to switch views instantly"""
     st.session_state['active_tab'] = view_name
 
+# --- DYNAMIC CSS FOR UPLOADER ---
+# This injects red styling only if no file is uploaded
+uploader_style = ""
+if st.session_state['uploaded_file'] is None:
+    uploader_style = """
+    /* Target the Uploader Container when empty */
+    [data-testid="stFileUploader"] section {
+        border: 2px dashed #ff4b4b !important;
+        background-color: #fff0f0 !important;
+    }
+    /* Target the "Browse files" button text to make it redish to stand out */
+    [data-testid="stFileUploader"] button {
+        border-color: #ff4b4b !important;
+        color: #ff4b4b !important;
+    }
+    """
+
 # --- PROFESSIONAL CSS ---
-st.markdown("""
+st.markdown(f"""
     <style>
-    /* 1. FIXED HEADER (Corrected Position & Size) */
-    .header-container {
+    {uploader_style}
+    
+    /* 1. FIXED HEADER (Clean & Aligned) */
+    .header-container {{
         position: fixed;
-        top: 3.75rem; /* Pushes it below the Streamlit decoration bar */
+        top: 3.75rem;
         left: 0;
         width: 100%;
         background-color: #ffffff;
-        z-index: 999; /* Below the sidebar (which is usually 1000+) but above content */
-        padding: 15px 40px;
+        z-index: 999;
+        padding: 15px 40px; /* Reduced vertical padding */
         border-bottom: 1px solid #e0e0e0;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.05);
-        height: 80px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        height: 60px; /* Slimmer header */
         display: flex;
-        flex-direction: column;
-        justify-content: center;
-        /* Ensure text isn't hidden behind sidebar on small screens */
+        align-items: center;
+        /* Ensure text isn't hidden behind sidebar */
         padding-left: 22rem; 
-    }
-    .header-title {
-        font-family: 'Inter', sans-serif;
-        font-size: 22px;
-        font-weight: 800;
-        color: #1f2937;
+    }}
+    .header-title {{
+        font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; /* Matched font */
+        font-size: 20px;
+        font-weight: 700;
+        color: #212529;
         margin: 0;
-    }
-    .header-subtitle {
-        font-size: 13px;
-        color: #6b7280;
-        margin: 0;
-    }
+    }}
     
-    /* 2. PUSH MAIN CONTENT DOWN */
-    .block-container {
-        padding-top: 10rem !important; /* Huge padding to clear the header */
-    }
+    /* 2. MAIN CONTENT PADDING */
+    .block-container {{
+        padding-top: 9rem !important;
+    }}
 
-    /* 3. SIDEBAR TWEAKS */
-    [data-testid="stSidebar"] {
+    /* 3. SIDEBAR ALIGNMENT */
+    [data-testid="stSidebar"] {{
         background-color: #f8f9fa;
         border-right: 1px solid #dee2e6;
-    }
+        padding-top: 1rem; /* Aligns with header */
+    }}
 
     /* 4. TABS FILL WIDTH */
-    .stTabs [data-baseweb="tab-list"] {
+    .stTabs [data-baseweb="tab-list"] {{
         display: flex;
         width: 100%;
         gap: 2px;
         background-color: #e9ecef;
         padding: 4px;
         border-radius: 6px;
-    }
-    .stTabs [data-baseweb="tab"] {
+    }}
+    .stTabs [data-baseweb="tab"] {{
         flex-grow: 1;
         justify-content: center;
         height: 40px;
@@ -89,49 +102,43 @@ st.markdown("""
         font-weight: 600;
         color: #495057;
         border: none;
-    }
-    .stTabs [aria-selected="true"] {
+    }}
+    .stTabs [aria-selected="true"] {{
         background-color: #ffffff !important;
         color: #0d6efd !important;
         box-shadow: 0 1px 2px rgba(0,0,0,0.1);
-    }
+    }}
 
     /* 5. METRIC CARDS */
-    .metric-card {
+    .metric-card {{
         background-color: white;
         border: 1px solid #e9ecef;
         border-radius: 8px;
         padding: 20px;
         text-align: center;
         box-shadow: 0 2px 4px rgba(0,0,0,0.02);
-    }
-    .metric-label {
+    }}
+    .metric-label {{
         font-size: 10px;
         font-weight: 700;
         text-transform: uppercase;
         color: #adb5bd;
         margin-bottom: 5px;
         letter-spacing: 0.5px;
-    }
-    .metric-value {
+    }}
+    .metric-value {{
         font-size: 20px;
         font-weight: 700;
         color: #212529;
-    }
+    }}
 
-    /* General */
-    h1, h2, h3 { font-family: 'Inter', sans-serif; color: #212529; }
-    .stDataFrame { border: 1px solid #dee2e6; }
-    
-    /* Responsive Header Adjustments for when sidebar is collapsed */
-    @media (max-width: 992px) {
-        .header-container { padding-left: 60px; }
-    }
+    @media (max-width: 992px) {{
+        .header-container {{ padding-left: 60px; }}
+    }}
     </style>
     
     <div class="header-container">
         <div class="header-title">Causal Inference Portal</div>
-        <div class="header-subtitle">Advanced Double Machine Learning & Statistical Analysis</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -224,8 +231,7 @@ def run_analysis_logic(df, treatment, outcome, controls, time_col=None, date_val
 
 # --- SIDEBAR ---
 with st.sidebar:
-    # SPACER: Pushes the sidebar content down so tabs start below the header
-    st.markdown("<div style='height: 80px;'></div>", unsafe_allow_html=True)
+    # No Spacer needed now as padding is adjusted in CSS to align with header
     
     # TACTICAL TABS
     tab_data, tab_logic, tab_run = st.tabs(["Data", "Logic", "Action"])
@@ -234,8 +240,10 @@ with st.sidebar:
     with tab_data:
         btn_type = "primary" if st.session_state['active_tab'] != "Data" else "secondary"
         st.button("Show Table View", type=btn_type, use_container_width=True, on_click=set_view, args=("Data",))
-            
+        
+        # This uploader will be Red if empty (via CSS above)
         uploaded_file = st.file_uploader("Upload CSV", type="csv")
+        
         if uploaded_file:
             st.session_state['uploaded_file'] = uploaded_file
             raw_df = pd.read_csv(uploaded_file)
@@ -277,8 +285,6 @@ with st.sidebar:
             if st.session_state['results'] is not None:
                 prev_btn_type = "primary" if st.session_state['active_tab'] != "Action" else "secondary"
                 st.button("Show Previous Analysis", type=prev_btn_type, use_container_width=True, on_click=set_view, args=("Action",))
-            
-            # REMOVED SEPARATOR LINE HERE
             
             if st.button("RUN NEW ANALYSIS", type="primary", use_container_width=True):
                 st.session_state['active_tab'] = "Action"
