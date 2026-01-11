@@ -12,6 +12,7 @@ from datetime import datetime
 import matplotlib.pyplot as plt
 import tempfile
 import os
+import textwrap
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
@@ -133,6 +134,43 @@ css = """
         color: #31333F;
         box-shadow: 0 1px 3px rgba(0,0,0,0.05);
     }
+    
+    /* 6. MAIN INFO BOX */
+    .main-info-box {
+        background-color: #ffffff;
+        border: 1px solid #e0e0e0;
+        border-radius: 10px;
+        padding: 40px;
+        text-align: left;
+        max-width: 800px;
+        margin: 0 auto;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+    }
+    
+    /* 7. EXAMPLE TABLE STYLE */
+    .example-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 14px;
+        font-family: "Source Sans Pro", sans-serif;
+        color: #333;
+        background-color: #fff;
+        border: 1px solid #e0e0e0;
+        margin-bottom: 20px;
+    }
+    .example-table th {
+        background-color: #f8f9fa;
+        color: #555;
+        font-weight: 600;
+        text-align: left;
+        padding: 12px;
+        border-bottom: 2px solid #e0e0e0;
+    }
+    .example-table td {
+        padding: 10px 12px;
+        border-bottom: 1px solid #f0f0f0;
+    }
+    .example-table tr:last-child td { border-bottom: none; }
 
     /* General */
     h1, h2, h3 { font-family: "Source Sans Pro", sans-serif; }
@@ -258,7 +296,6 @@ def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist, g
         g_pdf = create_logic_graph(**graph_config)
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp_g:
             g_pdf.render(filename=tmp_g.name.replace('.png', ''), format='png', cleanup=True)
-            # Reduced size to 80 (approx 40% reduction from original 170)
             pdf.image(tmp_g.name, x=65, w=80) 
     except Exception as e:
         pdf.set_font("Arial", 'I', 8)
@@ -282,7 +319,6 @@ def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist, g
     
     with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp_p:
         plt.savefig(tmp_p.name, format="png", dpi=100)
-        # Reduced width
         pdf.image(tmp_p.name, x=65, w=80)
     pdf.ln(3)
     
@@ -485,36 +521,62 @@ with st.sidebar:
 if st.session_state['active_tab'] == "Data":
     if st.session_state['uploaded_file']:
         fname = st.session_state['uploaded_file'].name
-        st.markdown(f"<h3 style='display:inline; font-family:\"Source Sans Pro\", sans-serif;'>Data Inspector</h3> <span style='color:#adb5bd; font-size:1.2rem; margin-left:10px;'>: {fname}</span>", unsafe_allow_html=True)
-        st.markdown("")
+        # HEADER + FILENAME ON SAME LINE
+        st.markdown(f"""
+        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 20px;">
+            <h3 style="margin: 0; padding: 0; font-family: 'Source Sans Pro', sans-serif; font-weight: 600; color: #31333F;">Data Inspector</h3>
+            <span style="color: #adb5bd; font-size: 1.2rem; font-weight: 400; padding-top: 2px;">: {fname}</span>
+        </div>
+        """, unsafe_allow_html=True)
+        
         st.dataframe(raw_df.head(100), use_container_width=True)
     else:
-        st.header("Welcome to the Causal Inference Portal")
-        st.info("This tool allows you to measure the **true impact** of interventions (like marketing campaigns, feature launches, or policy changes) by separating cause from correlation using advanced **Double Machine Learning**.")
-        
-        st.markdown("### 📋 Required Data Format (CSV)")
-        st.markdown("Your CSV should follow this structure:")
-        
-        # Standard Markdown Table (Clean & Robust)
-        st.markdown("""
-        | Treatment (0/1) | Outcome ($) | Control 1 (Age) | Control 2 (Region) |
-        | :--- | :--- | :--- | :--- |
-        | 1 | 120.50 | 25 | North |
-        | 0 | 85.00 | 32 | South |
-        | 1 | 135.20 | 45 | East |
+        # CLEAN HTML TABLE
+        welcome_html = textwrap.dedent("""
+        <div class="main-info-box">
+            <div style="font-size: 24px; font-weight: 700; color: #31333F; margin-bottom: 15px; text-align: center;">Welcome to the Causal Inference Portal</div>
+            <div style="font-size: 16px; color: #555; line-height: 1.6; margin-bottom: 25px;">
+                This tool allows you to measure the <b>true impact</b> of interventions (like marketing campaigns, feature launches, or policy changes) by separating cause from correlation using advanced <b>Double Machine Learning</b>.
+            </div>
+            
+            <div style="font-weight: 600; color: #31333F; font-size: 16px; margin-bottom: 15px;">📋 Required Data Format (CSV):</div>
+            
+            <table class="example-table">
+                <thead>
+                    <tr>
+                        <th>Treatment (0/1)</th>
+                        <th>Outcome ($)</th>
+                        <th>Control 1 (Age)</th>
+                        <th>Control 2 (Region)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td>1</td><td>120.50</td><td>25</td><td>North</td></tr>
+                    <tr><td>0</td><td>85.00</td><td>32</td><td>South</td></tr>
+                    <tr><td>1</td><td>135.20</td><td>45</td><td>East</td></tr>
+                </tbody>
+            </table>
+            
+            <div style="font-size: 15px; color: #31333F; line-height: 1.8;">
+                1. <b>Treatment Column:</b> 0 or 1 (Who got the intervention?)<br>
+                2. <b>Outcome Column:</b> Numeric (Sales, clicks, retention)<br>
+                3. <b>Control Variables:</b> User attributes (Age, Region, etc.)
+            </div>
+        </div>
         """)
-        
-        st.markdown("""
-        1. **Treatment Column:** 0 or 1 (Who got the intervention?)
-        2. **Outcome Column:** Numeric (Sales, clicks, retention)
-        3. **Control Variables:** User attributes (Age, Region, etc.)
-        """)
+        st.markdown(welcome_html, unsafe_allow_html=True)
 
 elif st.session_state['active_tab'] == "Logic":
     if st.session_state['uploaded_file']:
         fname = st.session_state['uploaded_file'].name
-        st.markdown(f"<h3 style='display:inline; font-family:\"Source Sans Pro\", sans-serif;'>Logic Visualization</h3> <span style='color:#adb5bd; font-size:1.2rem; margin-left:10px;'>: {fname}</span>", unsafe_allow_html=True)
-        st.markdown("")
+        # HEADER + FILENAME ON SAME LINE
+        st.markdown(f"""
+        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 20px;">
+            <h3 style="margin: 0; padding: 0; font-family: 'Source Sans Pro', sans-serif; font-weight: 600; color: #31333F;">Logic Visualization</h3>
+            <span style="color: #adb5bd; font-size: 1.2rem; font-weight: 400; padding-top: 2px;">: {fname}</span>
+        </div>
+        """, unsafe_allow_html=True)
+        
         g = create_logic_graph(treat_col, out_col, covs, cats, use_time, time_col, int_date)
         st.graphviz_chart(g)
     else:
@@ -542,8 +604,14 @@ elif st.session_state['active_tab'] == "Action":
             sig_text = "N/A"
         
         fname = st.session_state['uploaded_file'].name
-        st.markdown(f"<h3 style='display:inline; font-family:\"Source Sans Pro\", sans-serif;'>Analysis Results</h3> <span style='color:#adb5bd; font-size:1.2rem; margin-left:10px;'>: {fname}</span>", unsafe_allow_html=True)
-        st.markdown("")
+        
+        # HEADER + FILENAME ON SAME LINE
+        st.markdown(f"""
+        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 20px;">
+            <h3 style="margin: 0; padding: 0; font-family: 'Source Sans Pro', sans-serif; font-weight: 600; color: #31333F;">Analysis Results</h3>
+            <span style="color: #adb5bd; font-size: 1.2rem; font-weight: 400; padding-top: 2px;">: {fname}</span>
+        </div>
+        """, unsafe_allow_html=True)
         
         direction = "INCREASE" if ate > 0 else "DECREASE"
         sig_phrase = "statistically significant" if is_sig else "not statistically conclusive"
