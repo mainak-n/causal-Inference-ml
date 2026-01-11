@@ -97,35 +97,56 @@ css = """
         box-shadow: 0 1px 2px rgba(0,0,0,0.1);
     }
 
-    /* 5. MAIN INFO BOX (Left Aligned) */
+    /* 5. MAIN INFO BOX (Left Aligned & Clean) */
     .main-info-box {
         background-color: #ffffff;
         border: 1px solid #e0e0e0;
         border-radius: 10px;
         padding: 40px;
-        text-align: left; /* CHANGED TO LEFT */
+        text-align: left;
         max-width: 800px;
         margin: 0 auto;
         box-shadow: 0 4px 12px rgba(0,0,0,0.05);
     }
-    .info-icon { font-size: 40px; margin-bottom: 20px; text-align: center; display: block; }
     .info-header { 
         font-size: 24px; 
         font-weight: 700; 
         color: #31333F; 
         margin-bottom: 15px; 
-        text-align: center; /* Header still looks better centered, but text is left */
+        text-align: center;
     }
     .info-text { 
         font-size: 16px; 
-        color: #6c757d; 
+        color: #555; 
         line-height: 1.6; 
+        margin-bottom: 25px;
+    }
+    .info-subhead {
+        font-weight: 600;
+        color: #31333F;
+        font-size: 15px;
+        margin-bottom: 10px;
+    }
+    
+    /* Example Table Styling */
+    .example-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 14px;
+        color: #444;
+        margin-top: 10px;
         margin-bottom: 20px;
     }
-    .info-list { 
-        color: #31333F; 
-        line-height: 1.8;
-        font-size: 15px;
+    .example-table th {
+        text-align: left;
+        padding: 8px;
+        background-color: #f8f9fa;
+        border-bottom: 2px solid #dee2e6;
+        font-weight: 600;
+    }
+    .example-table td {
+        padding: 8px;
+        border-bottom: 1px solid #eee;
     }
 
     /* 6. METRIC CARDS */
@@ -290,9 +311,8 @@ def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist, g
             g_pdf.render(filename=tmp_g.name.replace('.png', ''), format='png', cleanup=True)
             pdf.image(tmp_g.name, x=10, w=190)
     except Exception as e:
-        # Fallback text if dot is missing
         pdf.set_font("Arial", 'I', 10)
-        pdf.cell(0, 10, "Note: Install 'graphviz' in packages.txt to render flowchart in PDF.", ln=True)
+        pdf.cell(0, 10, "Note: To render flowchart, ensure 'graphviz' is in packages.txt", ln=True)
     pdf.ln(5)
 
     # 3. Visual Impact Distribution
@@ -510,16 +530,47 @@ if st.session_state['active_tab'] == "Data":
     else:
         st.markdown("""
         <div class="main-info-box">
-            <div class="info-icon">👋</div>
             <div class="info-header">Welcome to the Causal Inference Portal</div>
             <div class="info-text">
                 This tool allows you to measure the <b>true impact</b> of interventions (like marketing campaigns, feature launches, or policy changes) by separating cause from correlation using advanced <b>Double Machine Learning</b>.
             </div>
+            
+            <div class="info-subhead">📋 Required Data Format (CSV):</div>
+            <table class="example-table">
+                <thead>
+                    <tr>
+                        <th>Treatment (0/1)</th>
+                        <th>Outcome ($)</th>
+                        <th>Control 1 (Age)</th>
+                        <th>Control 2 (Region)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>1</td>
+                        <td>120.50</td>
+                        <td>25</td>
+                        <td>North</td>
+                    </tr>
+                    <tr>
+                        <td>0</td>
+                        <td>85.00</td>
+                        <td>32</td>
+                        <td>South</td>
+                    </tr>
+                    <tr>
+                        <td>1</td>
+                        <td>135.20</td>
+                        <td>45</td>
+                        <td>East</td>
+                    </tr>
+                </tbody>
+            </table>
+            
             <div class="info-list">
-                <b>📋 Required Data Format (CSV):</b><br><br>
-                1. <b>Treatment Column:</b> 0/1 or True/False (Who got the intervention?)<br>
+                1. <b>Treatment Column:</b> 0 or 1 (Who got the intervention?)<br>
                 2. <b>Outcome Column:</b> Numeric (Sales, clicks, retention)<br>
-                3. <b>Control Variables:</b> User details (Age, Region, etc.)
+                3. <b>Control Variables:</b> User attributes (Age, Region, etc.)
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -527,7 +578,6 @@ if st.session_state['active_tab'] == "Data":
 elif st.session_state['active_tab'] == "Logic":
     if st.session_state['uploaded_file']:
         st.subheader("Logic Visualization")
-        # Use shared function
         g = create_logic_graph(treat_col, out_col, covs, cats, use_time, time_col, int_date)
         st.graphviz_chart(g)
     else:
