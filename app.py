@@ -302,6 +302,7 @@ def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist, g
         g_pdf = create_logic_graph(**graph_config)
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp_g:
             g_pdf.render(filename=tmp_g.name.replace('.png', ''), format='png', cleanup=True)
+            # Reduced size to 80
             pdf.image(tmp_g.name, x=65, w=80) 
     except Exception as e:
         pdf.set_font("Arial", 'I', 8)
@@ -425,11 +426,12 @@ def run_analysis_logic(df, treatment, outcome, controls, time_col=None):
         Y = df[outcome]
         T = df[treatment]
 
+        # FIX: Updated n_estimators to 100 to be divisible by subforest_size (4)
         est = CausalForestDML(
             model_y=RandomForestRegressor(n_estimators=100, max_depth=10, min_samples_leaf=5),
             model_t=RandomForestClassifier(n_estimators=100, max_depth=10, min_samples_leaf=5),
             discrete_treatment=True,
-            n_estimators=50
+            n_estimators=100 
         )
         est.fit(Y, T, X=X)
         
