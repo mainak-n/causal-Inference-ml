@@ -3,212 +3,292 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
-import statsmodels.api as sm
 from econml.dml import CausalForestDML
 from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
 from sklearn.preprocessing import LabelEncoder
 
-st.set_page_config(page_title="Causal Omni-Tool", layout="wide", page_icon="🔮")
+# --- PAGE CONFIGURATION ---
+st.set_page_config(
+    page_title="Causal Inference Analytics",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-# --- CSS FOR REPORTS ---
+# --- PROFESSIONAL CSS STYLING ---
 st.markdown("""
     <style>
-    .report-box { background-color: #f0f2f6; padding: 20px; border-radius: 10px; border-left: 5px solid #4e8cff; }
-    .sig-green { color: green; font-weight: bold; }
-    .sig-red { color: red; font-weight: bold; }
+    .main {
+        background-color: #ffffff;
+        font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    }
+    h1, h2, h3 {
+        color: #0e1117;
+        font-weight: 600;
+    }
+    .metric-container {
+        border: 1px solid #e6e6e6;
+        padding: 20px;
+        border-radius: 8px;
+        background-color: #f8f9fa;
+        text-align: center;
+    }
+    .stDataFrame {
+        border: 1px solid #e6e6e6;
+        border-radius: 5px;
+    }
+    div[data-testid="stExpander"] details summary {
+        font-weight: 600;
+        color: #31333F;
+    }
     </style>
     """, unsafe_allow_html=True)
 
-# ==========================================
-# 🧠 LOGIC: TIME SERIES (Interrupted Time Series)
-# ==========================================
-def run_its_analysis(df, time_col, outcome_col, intervention_date):
-    """
-    Runs Interrupted Time Series (ITS) using Segmented Regression.
-    Model: Y = β0 + β1(Time) + β2(Intervention) + β3(Time_After)
-    """
-    df = df.sort_values(time_col).copy()
-    
-    # Create Time Index (1, 2, 3...)
-    df['Time_Index'] = np.arange(len(df))
-    
-    # Create Intervention Dummy (0 before, 1 after)
-    # We assume 'intervention_date' is the first period OF the treatment
-    df['Is_Treated'] = (df[time_col] >= intervention_date).astype(int)
-    
-    # Create 'Time After' (0 before, 1, 2, 3... after)
-    intervention_idx = df[df[time_col] == intervention_date].iloc[0]['Time_Index']
-    df['Time_Since_Intervention'] = np.where(
-        df['Is_Treated'] == 1, 
-        df['Time_Index'] - intervention_idx, 
-        0
-    )
-    
-    # Run OLS Regression (Standard Statistical Model)
-    X = df[['Time_Index', 'Is_Treated', 'Time_Since_Intervention']]
-    X = sm.add_constant(X) # Adds β0
-    y = df[outcome_col]
-    
-    model = sm.OLS(y, X).fit()
-    
-    return model, df
+# --- CORE LOGIC FUNCTIONS ---
 
-# ==========================================
-# 🧠 LOGIC: SNAPSHOT (Dose Response)
-# ==========================================
-def run_dose_response(df, treatment_col, outcome_col, covariates):
-    # Causal Forest handles continuous/multi-level treatments automatically
+def preprocess_data(df, selected_columns):
+    """
+    Prepares data for ML: Handles missing values and encodes text columns.
+    """
+    data = df[selected_columns].copy()
+    data = data.dropna()
+    
+    encoders = {}
+    for col in data.columns:
+        if data[col].dtype == 'object':
+            le = LabelEncoder()
+            data[col] = le.fit_transform(data[col].astype(str))
+            encoders[col] = le
+            
+    return data, encoders
+
+def run_causal_model(data, treatment_col, outcome_col, controls, time_col=None, intervention_val=None):
+    """
+    Runs Double Machine Learning (Causal Forest).
+    Logic:
+    - If Time is provided: Implements Difference-in-Differences (DiD) logic.
+    - If No Time: Implements standard Treatment Effect logic.
+    """
+    
+    # 1. Setup Variables
+    Y = data[outcome_col]
+    X = data[controls]  # Confounders
+    
+    # 2. Define Treatment Definition based on Logic
+    if time_col and intervention_val:
+        # --- DIFFERENCE-IN-DIFFERENCES LOGIC ---
+        # We need to isolate the interaction: Being in Treatment Group AND being in Post-Period.
+        
+        # Create Post-Period Dummy (1 if after intervention, 0 if before)
+        # Assumes data is sorted or comparable. 
+        # For numeric time (years/days):
+        data['Is_Post'] = (data[time_col] >= intervention_val).astype(int)
+        
+        # The 'Treatment' for the model is the INTERACTION term.
+        # T = 1 only if you are in the Treatment Group AND it is the Post Period.
+        T = data[treatment_col] * data['Is_Post']
+        
+        # CRITICAL STEP: 
+        # We must add the Main Effects (Group ID and Time ID) to the Controls (X).
+        # This forces the model to remove the baseline group differences and baseline time trends.
+        X = X.copy()
+        X['Group_Main_Effect'] = data[treatment_col]
+        X['Time_Main_Effect'] = data['Is_Post']
+        
+    else:
+        # --- STANDARD RCT LOGIC ---
+        # No time dimension. Intervention started at the beginning.
+        # Simple comparison of Treatment vs Control group, controlling for X.
+        T = data[treatment_col]
+    
+    # 3. Train Causal Forest
+    # We use Random Forest for both propensity (T) and outcome (Y) models to handle non-linearities.
     est = CausalForestDML(
-        model_y=RandomForestRegressor(n_estimators=100, max_depth=6),
-        model_t=RandomForestRegressor(n_estimators=100, max_depth=6), # Regressor for continuous treatment
-        discrete_treatment=False, # FALSE allows 0, 1, 2, 3...
+        model_y=RandomForestRegressor(n_estimators=100, max_depth=6, random_state=42),
+        model_t=RandomForestClassifier(n_estimators=100, max_depth=6, random_state=42),
+        discrete_treatment=True,
         random_state=42
     )
     
-    Y = df[outcome_col]
-    T = df[treatment_col]
-    X = df[covariates]
-    
     est.fit(Y, T, X=X)
-    return est, X
-
-# ==========================================
-# 📱 UI
-# ==========================================
-st.title("🔮 Causal Omni-Tool: Time & Dose Analysis")
-
-# --- MODE SELECTOR ---
-mode = st.radio("Select Analysis Mode:", ["📅 Time Series (Intervention Date)", "👥 Snapshot (Multi-Level Treatment)"], horizontal=True)
-
-uploaded_file = st.file_uploader("Upload CSV", type="csv")
-
-if uploaded_file:
-    df = pd.read_csv(uploaded_file)
     
-    # ---------------------------------------------------------
-    # MODE 1: TIME SERIES (The "Day 1, 2, 3" Request)
-    # ---------------------------------------------------------
-    if "Time Series" in mode:
-        st.subheader("📅 Interrupted Time Series Analysis")
-        col1, col2, col3 = st.columns(3)
+    return est, X, T
+
+# --- APPLICATION LAYOUT ---
+
+st.title("Causal Effect Analysis Portal")
+st.markdown("""
+This tool uses **Double Machine Learning** to estimate the causal impact of an intervention. 
+It supports both **Randomized Control Trials (RCT)** and **Difference-in-Differences (DiD)** designs.
+""")
+
+st.markdown("---")
+
+# 1. SIDEBAR CONFIGURATION
+with st.sidebar:
+    st.header("Configuration")
+    
+    uploaded_file = st.file_uploader("Upload Data File (CSV)", type="csv")
+    
+    if uploaded_file:
+        raw_df = pd.read_csv(uploaded_file)
+        all_cols = raw_df.columns.tolist()
         
-        with col1:
-            time_col = st.selectbox("Time Column (e.g., Date, Week)", df.columns)
-            # Try to convert to datetime for plotting, but keep raw for logic if needed
-            try:
-                df[time_col] = pd.to_datetime(df[time_col])
-            except:
-                pass 
-                
-        with col2:
-            outcome_col = st.selectbox("Outcome Metric", df.columns, index=1)
-            
-        with col3:
-            # Dropdown to pick the exact date/index of intervention
-            intervention_point = st.selectbox("When did the Intervention start?", df[time_col].unique())
-
-        if st.button("Run Time Analysis"):
-            model, res_df = run_its_analysis(df, time_col, outcome_col, intervention_point)
-            
-            # --- 1. VISUALIZATION ---
-            # Plot Actual vs Fitted
-            res_df['Fitted_Values'] = model.predict(sm.add_constant(res_df[['Time_Index', 'Is_Treated', 'Time_Since_Intervention']]))
-            
-            fig = go.Figure()
-            # Actual Data
-            fig.add_trace(go.Scatter(x=res_df[time_col], y=res_df[outcome_col], mode='markers', name='Actual Data', marker=dict(color='gray', opacity=0.6)))
-            # Trend Line
-            fig.add_trace(go.Scatter(x=res_df[time_col], y=res_df['Fitted_Values'], mode='lines', name='Causal Trend', line=dict(color='blue', width=3)))
-            # Vertical Line for Intervention
-            fig.add_vline(x=intervention_point, line_dash="dash", line_color="red", annotation_text="Intervention")
-            
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # --- 2. STATISTICAL REPORT ---
-            st.markdown("### 📊 Statistical Report (Regression Results)")
-            
-            # Extract Coefficients
-            coef_intervention = model.params['Is_Treated']
-            p_val = model.pvalues['Is_Treated']
-            conf_int = model.conf_int().loc['Is_Treated']
-            
-            # Interpretation Logic
-            sig_text = "Statistically Significant ✅" if p_val < 0.05 else "Not Significant ❌"
-            color_class = "sig-green" if p_val < 0.05 else "sig-red"
-            
-            st.markdown(f"""
-            <div class="report-box">
-                <h4>Immediate Impact (The "Jump")</h4>
-                <p>At the moment of intervention, the metric shifted by: <b>{coef_intervention:.4f}</b></p>
-                <p>P-Value: <b>{p_val:.5f}</b> (<span class="{color_class}">{sig_text}</span>)</p>
-                <p>95% Confidence Interval: [{conf_int[0]:.4f}, {conf_int[1]:.4f}]</p>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            with st.expander("See Full Regression Table (For Statisticians)"):
-                st.text(model.summary())
-
-    # ---------------------------------------------------------
-    # MODE 2: SNAPSHOT (The "0 vs 1 vs 2 Emails" Request)
-    # ---------------------------------------------------------
-    else:
-        st.subheader("👥 Multi-Level Dose Response")
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            # Note: This logic now accepts continuous inputs (0, 1, 2, 1.5, etc.)
-            treat_col = st.selectbox("Treatment (e.g., Number of Emails)", df.columns)
-        with col2:
-            out_col = st.selectbox("Outcome", df.columns, index=1)
-        with col3:
-            covs = st.multiselect("Confounders", [c for c in df.columns if c not in [treat_col, out_col]])
-
-        if st.button("Calculate Dose Curve"):
-            if not covs:
-                st.error("Select confounders.")
+        st.subheader("Variable Mapping")
+        
+        # A. Treatment & Outcome
+        treatment_col = st.selectbox(
+            "Treatment Group Column", 
+            all_cols,
+            help="Binary column (0=Control, 1=Treatment Group)"
+        )
+        
+        outcome_col = st.selectbox(
+            "Outcome Column", 
+            all_cols, 
+            index=1,
+            help="The metric affected by the intervention (e.g., Sales, Health Score)"
+        )
+        
+        # B. Time Configuration (Optional)
+        use_time = st.checkbox("Include Time Dimension (Pre/Post Analysis)")
+        time_col = None
+        intervention_val = None
+        
+        if use_time:
+            time_col = st.selectbox("Time Column", all_cols)
+            # Try to infer type for input
+            if pd.api.types.is_numeric_dtype(raw_df[time_col]):
+                intervention_val = st.number_input(f"Intervention Start Value ({time_col})", value=raw_df[time_col].median())
             else:
-                # Preprocessing
-                clean_df = df.copy().dropna()
-                for c in covs:
-                    if clean_df[c].dtype == 'object':
-                        clean_df[c] = LabelEncoder().fit_transform(clean_df[c].astype(str))
+                intervention_val = st.text_input(f"Intervention Start Value ({time_col})")
                 
-                with st.spinner("Calculating Dose-Response Curve..."):
-                    model, X = run_dose_response(clean_df, treat_col, out_col, covs)
+        # C. Confounders
+        # Exclude selected columns from options
+        exclude = [treatment_col, outcome_col]
+        if time_col: exclude.append(time_col)
+        
+        covariates = st.multiselect(
+            "Control Variables (Confounders)", 
+            [c for c in all_cols if c not in exclude],
+            help="Select all other variables that influence the outcome."
+        )
+        
+        run_btn = st.button("Run Analysis", type="primary")
+
+# 2. MAIN CONTENT AREA
+if uploaded_file:
+    # DATA PREVIEW SECTION
+    st.subheader("Data Inspector")
+    st.markdown(f"**Filename:** {uploaded_file.name} | **Rows:** {len(raw_df)} | **Columns:** {len(raw_df.columns)}")
+    
+    # Display top 20 rows as requested
+    st.dataframe(raw_df.head(20), use_container_width=True)
+    
+    if run_btn:
+        if not covariates:
+            st.error("Configuration Error: Please select at least one Control Variable.")
+        else:
+            with st.spinner("Processing Causal Models..."):
+                try:
+                    # 1. Prepare Data
+                    cols_needed = [treatment_col, outcome_col] + covariates
+                    if time_col: cols_needed.append(time_col)
                     
-                    # --- CREATE THE DOSE CURVE ---
-                    # We predict the outcome for a hypothetical "Average User" across range of doses
-                    min_dose = clean_df[treat_col].min()
-                    max_dose = clean_df[treat_col].max()
+                    clean_df, encoders = preprocess_data(raw_df, cols_needed)
                     
-                    # Create range: 0, 1, 2, 3...
-                    doses = np.linspace(min_dose, max_dose, num=20)
-                    
-                    # We need to predict the effect relative to baseline (dose=0)
-                    # Note: EconML's 'effect' function predicts marginal effect (slope). 
-                    # For a curve, we often look at Average Marginal Effect at different levels.
-                    
-                    # SIMPLER VISUALIZATION FOR NON-PHDS:
-                    # Plot Raw Data vs "Causal Trend"
-                    # We create a partial dependence plot style visualization
-                    
-                    # Get predicted CATEs for everyone
-                    clean_df['Individual_Effect'] = model.effect(X)
-                    
-                    # Plot Treatment (X) vs Outcome (Y) adjusted for confounders
-                    # This is approximately the "Dose Response"
-                    
-                    fig = px.scatter(
-                        clean_df, x=treat_col, y=out_col, 
-                        color='Individual_Effect', 
-                        title="Dose-Response: Treatment Level vs Outcome",
-                        labels={treat_col: "Intervention Level (e.g., # Emails)", 'Individual_Effect': "Impact Strength"},
-                        trendline="lowess" # Adds a smooth curve showing the trend
+                    # 2. Run Model
+                    model, X_test, T_vector = run_causal_model(
+                        clean_df, treatment_col, outcome_col, covariates, 
+                        time_col, intervention_val
                     )
-                    st.plotly_chart(fig, use_container_width=True)
                     
-                    st.info("""
-                    **How to read this:**
-                    The **Line** shows the trend. If it goes up, more intervention = better results.
-                    The **Color** shows if the impact is consistent (Darker = Stronger Impact).
-                    If the line flattens out (e.g., after 2 emails), it means adding a 3rd email adds no value (Diminishing Returns).
-                    """)
+                    # 3. Extract Metrics
+                    ate = model.ate(X_test)
+                    ate_interval = model.ate_interval(X_test)
+                    clean_df['Calculated_Impact'] = model.effect(X_test)
+                    
+                    # --- RESULTS DASHBOARD ---
+                    st.markdown("### Analysis Results")
+                    
+                    # Metric Cards
+                    c1, c2, c3 = st.columns(3)
+                    
+                    with c1:
+                        st.markdown(
+                            f"""<div class="metric-container">
+                            <div style="font-size: 14px; color: #666;">Average Treatment Effect</div>
+                            <div style="font-size: 24px; font-weight: bold;">{ate:.4f}</div>
+                            </div>""", 
+                            unsafe_allow_html=True
+                        )
+                    
+                    with c2:
+                        lower, upper = ate_interval
+                        st.markdown(
+                            f"""<div class="metric-container">
+                            <div style="font-size: 14px; color: #666;">95% Confidence Interval</div>
+                            <div style="font-size: 24px; font-weight: bold;">[{lower:.3f}, {upper:.3f}]</div>
+                            </div>""", 
+                            unsafe_allow_html=True
+                        )
+                    
+                    with c3:
+                        is_sig = (lower > 0) or (upper < 0)
+                        status = "Statistically Significant" if is_sig else "Inconclusive (Null Hypothesis)"
+                        color = "#28a745" if is_sig else "#6c757d"
+                        
+                        st.markdown(
+                            f"""<div class="metric-container">
+                            <div style="font-size: 14px; color: #666;">Statistical Conclusion</div>
+                            <div style="font-size: 20px; font-weight: bold; color: {color};">{status}</div>
+                            </div>""", 
+                            unsafe_allow_html=True
+                        )
+
+                    # --- DETAILED CHARTS ---
+                    st.markdown("### Visualization")
+                    
+                    tab1, tab2 = st.tabs(["Impact Distribution", "Feature Drivers"])
+                    
+                    with tab1:
+                        st.markdown("**Distribution of Causal Impact across Population**")
+                        fig = px.histogram(
+                            clean_df, 
+                            x='Calculated_Impact', 
+                            nbins=30,
+                            title="How much did the intervention change the outcome per row?",
+                            color_discrete_sequence=['#4e8cff']
+                        )
+                        fig.add_vline(x=0, line_dash="dash", line_color="black")
+                        fig.update_layout(showlegend=False, plot_bgcolor="white")
+                        st.plotly_chart(fig, use_container_width=True)
+                        
+                    with tab2:
+                        st.markdown("**Which variables influence the effectiveness?**")
+                        # Simple feature importance on the effects
+                        interpreter = RandomForestRegressor(max_depth=4)
+                        interpreter.fit(X_test, clean_df['Calculated_Impact'])
+                        
+                        imp_df = pd.DataFrame({
+                            'Variable': covariates,
+                            'Importance': interpreter.feature_importances_
+                        }).sort_values('Importance', ascending=True)
+                        
+                        fig2 = px.bar(
+                            imp_df, 
+                            x='Importance', 
+                            y='Variable', 
+                            orientation='h',
+                            title="Drivers of Heterogeneity",
+                            color_discrete_sequence=['#4e8cff']
+                        )
+                        fig2.update_layout(plot_bgcolor="white")
+                        st.plotly_chart(fig2, use_container_width=True)
+
+                except Exception as e:
+                    st.error(f"Analysis Error: {str(e)}")
+                    st.info("Tip: Ensure your columns are numeric or valid categorical text.")
+
+else:
+    # Empty State
+    st.info("Please upload a CSV file from the sidebar to begin analysis.")
