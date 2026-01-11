@@ -708,22 +708,42 @@ elif st.session_state['active_tab'] == "Action":
         
         t0, t1, t2, t3, t4 = st.tabs(["📈 Treat vs Control", "📉 Impact Distribution", "🧠 Drivers of Impact", "🔍 Segment Analysis", "📊 Stats Table"])
         
+        # --- NEW TAB: TREAT VS CONTROL VISUAL ---
         with t0:
+            st.caption("Visual check: How do the groups compare?")
             plot_df = res['df'].copy()
-            # Restore Date for plotting if it was preprocessed away
+            
+            # Map labels for clearer plotting
+            plot_df['Group'] = plot_df[res['treat']].map({1: 'Treated', 0: 'Control'})
+            
+            # Scenario 1: TIME SERIES (Line Chart)
+            # We check if Time Logic was used AND if the time column is present in the df
             if res['graph_config']['use_time'] and res['graph_config']['time_col'] in raw_df.columns:
+                 # Re-fetch the original time column from raw_df to avoid preprocessing issues
                  t_c = res['graph_config']['time_col']
-                 plot_df[t_c] = pd.to_datetime(raw_df[t_c]) # Grab original dates
-                 plot_df['Group'] = plot_df[res['treat']].map({1: 'Treated', 0: 'Control'})
+                 try:
+                     plot_df[t_c] = pd.to_datetime(raw_df[t_c])
+                 except:
+                     plot_df[t_c] = raw_df[t_c]
                  
+                 # Group by Time and Group
                  trend = plot_df.groupby([t_c, 'Group'])[res['out']].mean().reset_index()
-                 fig = px.line(trend, x=t_c, y=res['out'], color='Group', title="Outcome Trends", markers=True)
+                 
+                 fig = px.line(trend, x=t_c, y=res['out'], color='Group', 
+                              title="Average Outcome Trends (Parallel Trends Check)",
+                              color_discrete_map={'Treated': '#28a745', 'Control': '#6c757d'},
+                              markers=True)
                  st.plotly_chart(fig, use_container_width=True)
+                 
+            # Scenario 2: NO TIME (Box Plot)
             else:
-                 st.info("Time series chart requires Time Logic to be enabled.")
+                 fig = px.box(plot_df, x='Group', y=res['out'], color='Group',
+                             title="Outcome Distribution by Group",
+                             color_discrete_map={'Treated': '#28a745', 'Control': '#6c757d'})
+                 st.plotly_chart(fig, use_container_width=True)
 
         with t1:
-            fig = px.histogram(x=impact_vals, nbins=30, color_discrete_sequence=['#0d6efd'])
+            fig = px.histogram(x=impact_vals, nbins=30, color_discrete_sequence=['#0d6efd'], labels={'x': 'Impact Value'})
             fig.add_vline(x=0, line_dash="dash", line_color="black")
             st.plotly_chart(fig, use_container_width=True)
             
