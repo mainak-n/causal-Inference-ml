@@ -700,10 +700,39 @@ elif st.session_state['active_tab'] == "Action":
         
         st.markdown("<div style='margin-top: 20px;'></div>", unsafe_allow_html=True)
         
-        t1, t2, t3, t4 = st.tabs(["📉 Impact Distribution", "🧠 Drivers of Impact", "🔍 Segment Analysis", "📊 Stats Table"])
+        t0, t1, t2, t3, t4 = st.tabs(["📈 Treat vs Control", "📉 Impact Distribution", "🧠 Drivers of Impact", "🔍 Segment Analysis", "📊 Stats Table"])
         
         res['df']['Impact'] = ml.effect(res['X'])
         
+        # --- NEW TAB: TREAT VS CONTROL VISUAL ---
+        with t0:
+            st.caption("Visual check: How do the groups compare?")
+            plot_df = res['df'].copy()
+            
+            # Map labels for clearer plotting
+            plot_df['Group'] = plot_df[res['treat']].map({1: 'Treated', 0: 'Control'})
+            
+            # Scenario 1: TIME SERIES (Line Chart)
+            # We check if Time Logic was used AND if the time column is present in the df
+            if res['graph_config']['use_time'] and res['graph_config']['time_col'] in plot_df.columns:
+                 time_c = res['graph_config']['time_col']
+                 
+                 # Group by Time and Group
+                 trend = plot_df.groupby([time_c, 'Group'])[res['out']].mean().reset_index()
+                 
+                 fig = px.line(trend, x=time_c, y=res['out'], color='Group', 
+                              title="Average Outcome Trends (Parallel Trends Check)",
+                              color_discrete_map={'Treated': '#28a745', 'Control': '#6c757d'},
+                              markers=True)
+                 st.plotly_chart(fig, use_container_width=True)
+                 
+            # Scenario 2: NO TIME (Box Plot)
+            else:
+                 fig = px.box(plot_df, x='Group', y=res['out'], color='Group',
+                             title="Outcome Distribution by Group",
+                             color_discrete_map={'Treated': '#28a745', 'Control': '#6c757d'})
+                 st.plotly_chart(fig, use_container_width=True)
+
         with t1:
             st.caption("Shows how the impact varies across the population.")
             fig = px.histogram(res['df'], x='Impact', nbins=50, color_discrete_sequence=['#0d6efd'])
