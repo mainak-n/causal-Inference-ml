@@ -262,7 +262,11 @@ def create_logic_graph(treat, out, covs, cats, use_time, time_col, int_date):
          
     return g
 
-def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist, graph_config, filename):
+def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist, graph_config, filename, df):
+    """
+    Generates a PDF report. 
+    If Time Logic is ON: Replaces Impact Distribution Histogram with Treatment vs Control Trend Line Chart.
+    """
     pdf = FPDF()
     pdf.add_page()
     
@@ -302,34 +306,76 @@ def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist, g
         g_pdf = create_logic_graph(**graph_config)
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp_g:
             g_pdf.render(filename=tmp_g.name.replace('.png', ''), format='png', cleanup=True)
-            # Reduced size to 80
             pdf.image(tmp_g.name, x=65, w=80) 
     except Exception as e:
         pdf.set_font("Arial", 'I', 8)
         pdf.cell(0, 6, "Note: To render flowchart, ensure 'graphviz' is in packages.txt", ln=True)
     pdf.ln(5)
 
-    # 3. Visual Impact Distribution
+    # 3. Visual Section (CONDITIONAL)
     pdf.set_font("Arial", 'B', 11)
-    pdf.cell(0, 7, "3. Impact Distribution", ln=True, fill=True)
-    pdf.ln(3)
     
-    plt.figure(figsize=(5, 2.5))
-    if isinstance(impact_dist, (int, float)):
-        # If scalar (DiD), just draw a line
-        plt.axvline(x=impact_dist, color='#0d6efd', linewidth=4, label='Impact')
-        plt.xlim(impact_dist - 10, impact_dist + 10)
+    # Check if Time Logic was used and the column exists
+    if graph_config['use_time'] and graph_config['time_col'] in df.columns:
+        # --- SHOW TREATMENT VS CONTROL TRENDS ---
+        pdf.cell(0, 7, "3. Treatment vs Control Trends", ln=True, fill=True)
+        pdf.ln(3)
+        
+        plt.figure(figsize=(6, 3))
+        
+        # Prepare Data for Plotting
+        plot_df = df.copy()
+        time_c = graph_config['time_col']
+        
+        # Ensure date format for plotting
+        try:
+            plot_df[time_c] = pd.to_datetime(plot_df[time_c])
+        except:
+            pass # Keep as is if conversion fails
+            
+        # Aggregate
+        trend = plot_df.groupby([time_c, treat])[out].mean().reset_index()
+        
+        # Plot using standard Matplotlib (since we can't embed Plotly in FPDF)
+        # Treated
+        treated_data = trend[trend[treat] == 1]
+        plt.plot(treated_data[time_c], treated_data[out], label='Treated', color='#28a745', marker='.', linewidth=2)
+        
+        # Control
+        control_data = trend[trend[treat] == 0]
+        plt.plot(control_data[time_c], control_data[out], label='Control', color='#6c757d', marker='.', linewidth=2)
+        
+        plt.title("Parallel Trends Check", fontsize=10)
+        plt.xlabel("Time", fontsize=8)
+        plt.ylabel(out, fontsize=8)
+        plt.legend(fontsize=8)
+        plt.xticks(fontsize=7, rotation=45)
+        plt.yticks(fontsize=7)
+        plt.grid(color='#f0f0f0', linestyle='--')
+        plt.tight_layout()
+        
     else:
-        plt.hist(impact_dist, bins=30, color='#0d6efd', alpha=0.7, edgecolor='black')
-        plt.axvline(x=0, color='red', linestyle='--')
+        # --- SHOW IMPACT DISTRIBUTION (HISTOGRAM) ---
+        pdf.cell(0, 7, "3. Impact Distribution", ln=True, fill=True)
+        pdf.ln(3)
+        
+        plt.figure(figsize=(5, 2.5))
+        if isinstance(impact_dist, (int, float)):
+            # If scalar (DiD but missing time col in df), draw line
+            plt.axvline(x=impact_dist, color='#0d6efd', linewidth=4, label='Impact')
+            plt.xlim(impact_dist - 10, impact_dist + 10)
+        else:
+            plt.hist(impact_dist, bins=30, color='#0d6efd', alpha=0.7, edgecolor='black')
+            plt.axvline(x=0, color='red', linestyle='--')
+        
+        plt.title("Distribution of Causal Impact", fontsize=9)
+        plt.xlabel("Impact Value", fontsize=7)
+        plt.ylabel("Frequency", fontsize=7)
+        plt.xticks(fontsize=6)
+        plt.yticks(fontsize=6)
+        plt.tight_layout()
     
-    plt.title("Distribution of Causal Impact", fontsize=9)
-    plt.xlabel("Impact Value", fontsize=7)
-    plt.ylabel("Frequency", fontsize=7)
-    plt.xticks(fontsize=6)
-    plt.yticks(fontsize=6)
-    plt.tight_layout()
-    
+    # Save Plot to Temp File for PDF insertion
     with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp_p:
         plt.savefig(tmp_p.name, format="png", dpi=100)
         pdf.image(tmp_p.name, x=65, w=80)
@@ -602,7 +648,8 @@ with st.sidebar:
                 else:
                     impact_dist = res['ml'].effect(res['X'])
                 
-                pdf_data = generate_pdf(ate, l, u, p, r2, res['treat'], res['out'], res['feats'], pd.Series(impact_dist), res['graph_config'], fname)
+                # PASS DF TO GENERATE PDF
+                pdf_data = generate_pdf(ate, l, u, p, r2, res['treat'], res['out'], res['feats'], pd.Series(impact_dist), res['graph_config'], fname, res['df'])
                 st.download_button("DOWNLOAD PDF REPORT", pdf_data, "causal_report.pdf", "application/pdf", use_container_width=True)
 
 # --- MAIN PAGE ---
