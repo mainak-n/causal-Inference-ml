@@ -16,7 +16,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- STATE MANAGEMENT (Must be at top) ---
+# --- STATE MANAGEMENT ---
 if 'results' not in st.session_state: st.session_state['results'] = None
 if 'uploaded_file' not in st.session_state: st.session_state['uploaded_file'] = None
 if 'active_tab' not in st.session_state: st.session_state['active_tab'] = "Data"
@@ -28,7 +28,7 @@ def set_view(view_name):
 # --- PROFESSIONAL CSS ---
 st.markdown("""
     <style>
-    /* 1. FIXED & STYLED HEADER */
+    /* 1. FIXED & STYLED HEADER (Height Adjusted) */
     .header-container {
         position: fixed;
         top: 0;
@@ -36,34 +36,51 @@ st.markdown("""
         width: 100%;
         background-color: #ffffff;
         z-index: 9999;
-        padding: 15px 80px; /* Adjust padding to align with streamlit layout */
+        padding: 20px 80px 20px 80px; /* Increased padding */
         border-bottom: 1px solid #e0e0e0;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+        box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        height: 85px; /* Fixed height to ensure subtitle is visible */
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
     }
     .header-title {
         font-family: 'Inter', sans-serif;
-        font-size: 24px;
+        font-size: 22px;
         font-weight: 800;
         color: #1f2937;
         margin: 0;
+        line-height: 1.2;
     }
     .header-subtitle {
-        font-size: 14px;
+        font-size: 13px;
         color: #6b7280;
         margin: 0;
+        line-height: 1.4;
     }
     
     /* Push main content down so it doesn't hide behind the fixed header */
     .block-container {
-        padding-top: 5rem !important;
+        padding-top: 7rem !important; /* Increased from 5rem to 7rem */
     }
 
-    /* 2. FORCE TABS TO FILL WIDTH */
+    /* 2. SIDEBAR ADJUSTMENT (Pull Up) */
+    [data-testid="stSidebar"] {
+        background-color: #f8f9fa;
+        border-right: 1px solid #dee2e6;
+        padding-top: 2rem; /* Reduced padding */
+    }
+    /* Move the tabs closer to the top of the sidebar */
+    section[data-testid="stSidebar"] > div:first-child {
+        padding-top: 0rem;
+    }
+
+    /* 3. TABS FILL WIDTH */
     .stTabs [data-baseweb="tab-list"] {
         display: flex;
         width: 100%;
         gap: 2px;
-        background-color: #f8f9fa;
+        background-color: #e9ecef;
         padding: 4px;
         border-radius: 6px;
     }
@@ -82,13 +99,6 @@ st.markdown("""
         background-color: #ffffff !important;
         color: #0d6efd !important;
         box-shadow: 0 1px 2px rgba(0,0,0,0.1);
-    }
-
-    /* 3. SIDEBAR STYLING */
-    [data-testid="stSidebar"] {
-        background-color: #f8f9fa;
-        border-right: 1px solid #dee2e6;
-        padding-top: 1rem;
     }
 
     /* 4. METRIC CARDS */
@@ -120,8 +130,8 @@ st.markdown("""
     </style>
     
     <div class="header-container">
-        <p class="header-title">Causal Inference Portal</p>
-        <p class="header-subtitle">Advanced Double Machine Learning & Statistical Analysis</p>
+        <div class="header-title">Causal Inference Portal</div>
+        <div class="header-subtitle">Advanced Double Machine Learning & Statistical Analysis</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -214,14 +224,15 @@ def run_analysis_logic(df, treatment, outcome, controls, time_col=None, date_val
 
 # --- SIDEBAR ---
 with st.sidebar:
-    st.markdown("<br>", unsafe_allow_html=True) # Spacer for fixed header
+    # Spacer is reduced since we adjusted CSS, but a small break helps
+    st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
     
     # TACTICAL TABS
     tab_data, tab_logic, tab_run = st.tabs(["Data", "Logic", "Action"])
 
     # 1. DATA TAB
     with tab_data:
-        # BUTTON FIX: Use on_click callback for instant update
+        # Highlight Red (Primary) if active tab is NOT Data
         btn_type = "primary" if st.session_state['active_tab'] != "Data" else "secondary"
         st.button("Show Table View", type=btn_type, use_container_width=True, on_click=set_view, args=("Data",))
             
@@ -236,7 +247,7 @@ with st.sidebar:
 
     # 2. LOGIC TAB
     with tab_logic:
-        # BUTTON FIX: Use on_click callback
+        # Highlight Red (Primary) if active tab is NOT Logic
         btn_type = "primary" if st.session_state['active_tab'] != "Logic" else "secondary"
         st.button("Visualize Logic Flow", type=btn_type, use_container_width=True, on_click=set_view, args=("Logic",))
             
@@ -265,8 +276,16 @@ with st.sidebar:
     # 3. ACTION TAB
     with tab_run:
         if uploaded_file:
-            # We don't use on_click here because we need to run complex logic inside the button
-            if st.button("RUN ANALYSIS", type="primary", use_container_width=True):
+            # Show Previous Analysis Button
+            if st.session_state['results'] is not None:
+                # Highlight if not currently viewing results
+                prev_btn_type = "primary" if st.session_state['active_tab'] != "Action" else "secondary"
+                st.button("Show Previous Analysis", type=prev_btn_type, use_container_width=True, on_click=set_view, args=("Action",))
+            
+            st.markdown("---")
+            
+            # Run New Analysis
+            if st.button("RUN NEW ANALYSIS", type="primary", use_container_width=True):
                 st.session_state['active_tab'] = "Action"
                 with st.spinner("Calculating Impact..."):
                     need = [treat_col, out_col] + covs
@@ -281,6 +300,7 @@ with st.sidebar:
                             'treat': treat_col, 'out': out_col
                         }
             
+            # PDF Download
             if st.session_state['results']:
                 res = st.session_state['results']
                 ate = res['ml'].ate(res['X'])
