@@ -7,3 +7,4 @@ econml
 statsmodels
 fpdf
 graphviz
+matplotlib
