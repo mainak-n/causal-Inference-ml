@@ -62,13 +62,13 @@ css = """
         padding-bottom: 5rem;
     }
     
-    /* 3. SIDEBAR ALIGNMENT (Aggressive Lift) */
+    /* 3. SIDEBAR ALIGNMENT */
     section[data-testid="stSidebar"] > div:first-child {
         padding-top: 0rem;
     }
     [data-testid="stSidebarNav"] { display: none; }
     
-    /* Pull tabs up higher using negative margin */
+    /* Pull tabs up higher */
     .stTabs { margin-top: -30px; } 
 
     /* 4. TABS STYLE */
@@ -97,7 +97,7 @@ css = """
         box-shadow: 0 1px 2px rgba(0,0,0,0.1);
     }
 
-    /* 5. MAIN INFO BOX (Left Aligned & Clean) */
+    /* 5. MAIN INFO BOX */
     .main-info-box {
         background-color: #ffffff;
         border: 1px solid #e0e0e0;
@@ -124,29 +124,41 @@ css = """
     .info-subhead {
         font-weight: 600;
         color: #31333F;
+        font-size: 16px;
+        margin-bottom: 15px;
+        margin-top: 30px;
+    }
+    .info-list { 
+        color: #31333F; 
+        line-height: 1.8;
         font-size: 15px;
-        margin-bottom: 10px;
+        margin-top: 20px;
     }
     
-    /* Example Table Styling */
+    /* TABLE STYLE */
     .example-table {
         width: 100%;
         border-collapse: collapse;
         font-size: 14px;
-        color: #444;
-        margin-top: 10px;
-        margin-bottom: 20px;
+        font-family: "Source Sans Pro", sans-serif;
+        color: #333;
+        background-color: #fff;
+        border: 1px solid #e0e0e0;
     }
     .example-table th {
-        text-align: left;
-        padding: 8px;
         background-color: #f8f9fa;
-        border-bottom: 2px solid #dee2e6;
+        color: #555;
         font-weight: 600;
+        text-align: left;
+        padding: 12px;
+        border-bottom: 2px solid #e0e0e0;
     }
     .example-table td {
-        padding: 8px;
-        border-bottom: 1px solid #eee;
+        padding: 10px 12px;
+        border-bottom: 1px solid #f0f0f0;
+    }
+    .example-table tr:last-child td {
+        border-bottom: none;
     }
 
     /* 6. METRIC CARDS */
@@ -274,87 +286,90 @@ def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist, g
     pdf = FPDF()
     pdf.add_page()
     
+    # Fonts Reduced by ~2 points
+    
     # Header
-    pdf.set_font("Arial", 'B', 20)
-    pdf.cell(0, 20, "Causal Analysis Report", ln=True, align='C')
-    pdf.set_font("Arial", '', 10)
-    pdf.cell(0, 10, f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M')}", ln=True, align='C')
-    pdf.ln(10)
+    pdf.set_font("Arial", 'B', 16) # Was 20
+    pdf.cell(0, 15, "Causal Analysis Report", ln=True, align='C')
+    pdf.set_font("Arial", '', 8)   # Was 10
+    pdf.cell(0, 8, f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M')}", ln=True, align='C')
+    pdf.ln(5)
     
     # 1. Executive Summary
-    pdf.set_font("Arial", 'B', 14)
+    pdf.set_font("Arial", 'B', 12) # Was 14
     pdf.set_fill_color(240, 240, 240)
-    pdf.cell(0, 10, "1. Executive Summary", ln=True, fill=True)
-    pdf.ln(5)
+    pdf.cell(0, 8, "1. Executive Summary", ln=True, fill=True)
+    pdf.ln(3)
     
-    pdf.set_font("Arial", '', 11)
-    pdf.cell(0, 8, f"Intervention Variable: {treat}", ln=True)
-    pdf.cell(0, 8, f"Target Outcome: {out}", ln=True)
-    pdf.ln(5)
+    pdf.set_font("Arial", '', 10) # Was 11
+    pdf.cell(0, 6, f"Intervention Variable: {treat}", ln=True)
+    pdf.cell(0, 6, f"Target Outcome: {out}", ln=True)
+    pdf.ln(3)
     
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(95, 10, f"Average Impact (ATE): {ate:.4f}", border=1)
-    pdf.cell(95, 10, f"Model Fit (R2): {r2:.4f}", border=1, ln=True)
+    pdf.set_font("Arial", 'B', 10) # Was 12
+    pdf.cell(95, 8, f"Average Impact (ATE): {ate:.4f}", border=1)
+    pdf.cell(95, 8, f"Model Fit (R2): {r2:.4f}", border=1, ln=True)
+    
     sig_txt = "Significant (p < 0.05)" if p_val < 0.05 else "Not Significant"
-    pdf.cell(95, 10, f"Significance: {sig_txt}", border=1)
-    pdf.cell(95, 10, f"95% CI: [{lower:.4f}, {upper:.4f}]", border=1, ln=True)
-    pdf.ln(10)
+    pdf.cell(95, 8, f"Significance: {sig_txt}", border=1)
+    pdf.cell(95, 8, f"95% CI: [{lower:.4f}, {upper:.4f}]", border=1, ln=True)
+    pdf.ln(8)
     
-    # 2. Logic Flowchart (Embedded)
-    pdf.set_font("Arial", 'B', 14)
-    pdf.cell(0, 10, "2. Logic Configuration (Flowchart)", ln=True, fill=True)
-    pdf.ln(5)
+    # 2. Logic Flowchart
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(0, 8, "2. Logic Configuration (Flowchart)", ln=True, fill=True)
+    pdf.ln(3)
     
     try:
         g_pdf = create_logic_graph(**graph_config)
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp_g:
             g_pdf.render(filename=tmp_g.name.replace('.png', ''), format='png', cleanup=True)
-            pdf.image(tmp_g.name, x=10, w=190)
+            pdf.image(tmp_g.name, x=10, w=170) # Width slightly reduced to fit page
     except Exception as e:
-        pdf.set_font("Arial", 'I', 10)
-        pdf.cell(0, 10, "Note: To render flowchart, ensure 'graphviz' is in packages.txt", ln=True)
+        pdf.set_font("Arial", 'I', 8)
+        pdf.cell(0, 8, "Note: To render flowchart, ensure 'graphviz' is in packages.txt", ln=True)
     pdf.ln(5)
 
     # 3. Visual Impact Distribution
-    pdf.set_font("Arial", 'B', 14)
-    pdf.cell(0, 10, "3. Impact Distribution", ln=True, fill=True)
-    pdf.ln(5)
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(0, 8, "3. Impact Distribution", ln=True, fill=True)
+    pdf.ln(3)
     
     plt.figure(figsize=(6, 3))
     plt.hist(impact_dist, bins=30, color='#0d6efd', alpha=0.7, edgecolor='black')
     plt.axvline(x=0, color='red', linestyle='--')
-    plt.title("Distribution of Causal Impact")
-    plt.xlabel("Impact Value")
-    plt.ylabel("Frequency")
+    plt.title("Distribution of Causal Impact", fontsize=10)
+    plt.xlabel("Impact Value", fontsize=8)
+    plt.ylabel("Frequency", fontsize=8)
     plt.tight_layout()
     
     with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp_p:
         plt.savefig(tmp_p.name, format="png", dpi=100)
-        pdf.image(tmp_p.name, x=10, w=190)
-    pdf.ln(5)
+        pdf.image(tmp_p.name, x=10, w=170)
+    pdf.ln(3)
     
-    pdf.set_font("Arial", '', 10)
-    pdf.cell(0, 6, f"Min: {impact_dist.min():.2f} | Max: {impact_dist.max():.2f} | Median: {impact_dist.median():.2f}", ln=True)
-    pdf.ln(10)
+    pdf.set_font("Arial", '', 8)
+    pdf.cell(0, 5, f"Min: {impact_dist.min():.2f} | Max: {impact_dist.max():.2f} | Median: {impact_dist.median():.2f}", ln=True)
+    pdf.ln(8)
 
     # 4. Top Drivers
-    pdf.set_font("Arial", 'B', 14)
-    pdf.cell(0, 10, "4. Top Drivers of Impact", ln=True, fill=True)
-    pdf.ln(5)
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(0, 8, "4. Top Drivers of Impact", ln=True, fill=True)
+    pdf.ln(3)
     
-    pdf.set_font("Arial", '', 11)
+    pdf.set_font("Arial", '', 10)
     if not feats.empty:
-        pdf.cell(0, 8, "Most influential variables:", ln=True)
+        pdf.cell(0, 6, "Most influential variables:", ln=True)
         pdf.ln(2)
-        pdf.set_font("Arial", 'B', 10)
-        pdf.cell(140, 8, "Variable Name", border=1)
-        pdf.cell(50, 8, "Importance Score", border=1, ln=True)
-        pdf.set_font("Arial", '', 10)
+        pdf.set_font("Arial", 'B', 9) # Table header smaller
+        pdf.cell(140, 6, "Variable Name", border=1)
+        pdf.cell(50, 6, "Importance Score", border=1, ln=True)
+        pdf.set_font("Arial", '', 9) # Table body smaller
         for index, row in feats.head(8).iterrows():
-            pdf.cell(140, 8, str(row['Feature']), border=1)
-            pdf.cell(50, 8, f"{row['Importance']:.4f}", border=1, ln=True)
+            pdf.cell(140, 6, str(row['Feature']), border=1)
+            pdf.cell(50, 6, f"{row['Importance']:.4f}", border=1, ln=True)
     else:
-        pdf.cell(0, 8, "No control variables were used.", ln=True)
+        pdf.cell(0, 6, "No control variables were used.", ln=True)
         
     return pdf.output(dest='S').encode('latin-1')
 
