@@ -220,7 +220,8 @@ def preprocess_data(df, selected_columns, categorical_cols):
             
     encoders = {}
     for col in data.columns:
-        if data[col].dtype == 'object' or isinstance(data[col].dtype, pd.PeriodDtype):
+        # Check if the column is NOT a datetime before trying to label encode it.
+        if (data[col].dtype == 'object' or isinstance(data[col].dtype, pd.PeriodDtype)) and not pd.api.types.is_datetime64_any_dtype(data[col]):
             le = LabelEncoder()
             data[col] = le.fit_transform(data[col].astype(str))
             encoders[col] = le
@@ -530,17 +531,25 @@ with st.sidebar:
                     with st.spinner("Calculating Impact..."):
                         prep_df = raw_df.copy()
                         
-                        # Handle Date Conversion for DiD Logic
+                        # --- FIX FOR 1970 ISSUE & TIME LOGIC ---
+                        if use_time and time_col:
+                            try:
+                                # Force to datetime immediately so it doesn't get label encoded
+                                prep_df[time_col] = pd.to_datetime(prep_df[time_col])
+                            except Exception as e:
+                                st.error(f"Could not convert {time_col} to date: {e}")
+
+                        # Handle Intervention Logic
                         if use_time and time_col and int_date:
                             try:
-                                ts = pd.to_datetime(prep_df[time_col])
+                                # Ensure strict comparison
                                 ids = pd.to_datetime(int_date)
-                                prep_df['Is_Post'] = (ts >= ids).astype(int)
+                                prep_df['Is_Post'] = (prep_df[time_col] >= ids).astype(int)
                             except:
                                 prep_df['Is_Post'] = 0
                         
                         need = [treat_col, out_col] + covs
-                        if use_time and time_col: need.append(time_col) # Keep date column for feature eng
+                        if use_time and time_col: need.append(time_col) # Keep date column for visual/features
                         if 'Is_Post' in prep_df.columns: need.append('Is_Post')
                         
                         # Preprocess (One-Hot Encoding)
