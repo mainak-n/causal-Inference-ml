@@ -222,7 +222,7 @@ def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist, g
     pdf = FPDF()
     pdf.add_page()
     
-    # Header (Filename added)
+    # Header
     pdf.set_font("Arial", 'B', 16)
     pdf.cell(0, 10, f"Causal Analysis Report: {filename}", ln=True, align='C')
     pdf.set_font("Arial", '', 8)
@@ -258,6 +258,7 @@ def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist, g
         g_pdf = create_logic_graph(**graph_config)
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp_g:
             g_pdf.render(filename=tmp_g.name.replace('.png', ''), format='png', cleanup=True)
+            # Reduced size to 80 (approx 40% reduction from original 170)
             pdf.image(tmp_g.name, x=65, w=80) 
     except Exception as e:
         pdf.set_font("Arial", 'I', 8)
@@ -281,6 +282,7 @@ def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist, g
     
     with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp_p:
         plt.savefig(tmp_p.name, format="png", dpi=100)
+        # Reduced width
         pdf.image(tmp_p.name, x=65, w=80)
     pdf.ln(3)
     
@@ -482,7 +484,9 @@ with st.sidebar:
 
 if st.session_state['active_tab'] == "Data":
     if st.session_state['uploaded_file']:
-        st.subheader("Data Inspector")
+        fname = st.session_state['uploaded_file'].name
+        st.markdown(f"<h3 style='display:inline; font-family:\"Source Sans Pro\", sans-serif;'>Data Inspector</h3> <span style='color:#adb5bd; font-size:1.2rem; margin-left:10px;'>: {fname}</span>", unsafe_allow_html=True)
+        st.markdown("")
         st.dataframe(raw_df.head(100), use_container_width=True)
     else:
         st.header("Welcome to the Causal Inference Portal")
@@ -508,7 +512,9 @@ if st.session_state['active_tab'] == "Data":
 
 elif st.session_state['active_tab'] == "Logic":
     if st.session_state['uploaded_file']:
-        st.subheader("Logic Visualization")
+        fname = st.session_state['uploaded_file'].name
+        st.markdown(f"<h3 style='display:inline; font-family:\"Source Sans Pro\", sans-serif;'>Logic Visualization</h3> <span style='color:#adb5bd; font-size:1.2rem; margin-left:10px;'>: {fname}</span>", unsafe_allow_html=True)
+        st.markdown("")
         g = create_logic_graph(treat_col, out_col, covs, cats, use_time, time_col, int_date)
         st.graphviz_chart(g)
     else:
@@ -536,10 +542,8 @@ elif st.session_state['active_tab'] == "Action":
             sig_text = "N/A"
         
         fname = st.session_state['uploaded_file'].name
-        
-        # Header with filename in grey
         st.markdown(f"<h3 style='display:inline; font-family:\"Source Sans Pro\", sans-serif;'>Analysis Results</h3> <span style='color:#adb5bd; font-size:1.2rem; margin-left:10px;'>: {fname}</span>", unsafe_allow_html=True)
-        st.markdown("") # Spacing
+        st.markdown("")
         
         direction = "INCREASE" if ate > 0 else "DECREASE"
         sig_phrase = "statistically significant" if is_sig else "not statistically conclusive"
