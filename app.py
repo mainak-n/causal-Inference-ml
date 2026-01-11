@@ -9,6 +9,8 @@ from sklearn.preprocessing import LabelEncoder
 from fpdf import FPDF
 import graphviz
 from datetime import datetime
+import matplotlib.pyplot as plt
+import tempfile
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
@@ -31,12 +33,12 @@ def reset_analysis():
 # --- CSS STYLING ---
 css = """
     <style>
-    /* 1. FIXED HEADER (Centered relative to Main Content) */
+    /* 1. FIXED HEADER */
     .header-container {
         position: fixed;
         top: 3.75rem;
-        left: 21rem; /* Starts after the sidebar */
-        width: calc(100% - 21rem); /* Spans the remaining width */
+        left: 21rem; /* Starts after sidebar */
+        width: calc(100% - 21rem);
         background-color: #ffffff;
         z-index: 999;
         padding: 0px 40px;
@@ -44,7 +46,7 @@ css = """
         height: 60px;
         display: flex;
         align-items: center;
-        justify-content: center; /* Centers content within the remaining space */
+        justify-content: center;
     }
     .header-title {
         font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
@@ -59,17 +61,12 @@ css = """
         padding-top: 8rem !important;
     }
 
-    /* 3. SIDEBAR ALIGNMENT (Aggressive Lift using Negative Margin) */
+    /* 3. SIDEBAR ALIGNMENT */
     section[data-testid="stSidebar"] > div:first-child {
         padding-top: 0rem;
     }
-    [data-testid="stSidebarNav"] {
-        display: none;
-    }
-    /* Moves the tabs up by 20px to hit the ceiling */
-    .stTabs {
-        margin-top: -20px;
-    }
+    [data-testid="stSidebarNav"] { display: none; }
+    .stTabs { margin-top: -20px; }
 
     /* 4. TABS */
     .stTabs [data-baseweb="tab-list"] {
@@ -97,22 +94,21 @@ css = """
         box-shadow: 0 1px 2px rgba(0,0,0,0.1);
     }
 
-    /* 5. INFO BOX (Help Text) */
-    .info-box {
-        background-color: #f8f9fa;
-        border: 1px solid #dee2e6;
-        border-radius: 6px;
-        padding: 15px;
-        font-size: 13px;
-        color: #6c757d;
-        margin-top: 20px;
+    /* 5. MAIN PAGE INFO BOX */
+    .main-info-box {
+        background-color: #ffffff;
+        border: 1px solid #e0e0e0;
+        border-radius: 10px;
+        padding: 40px;
+        text-align: center;
+        max-width: 800px;
+        margin: 50px auto;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.05);
     }
-    .info-title {
-        font-weight: 700;
-        color: #495057;
-        margin-bottom: 5px;
-        font-size: 14px;
-    }
+    .info-icon { font-size: 40px; margin-bottom: 20px; }
+    .info-header { font-size: 24px; font-weight: 700; color: #212529; margin-bottom: 15px; }
+    .info-text { font-size: 16px; color: #6c757d; line-height: 1.6; }
+    .info-list { text-align: left; display: inline-block; margin-top: 20px; color: #495057; }
 
     h1, h2, h3 { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #212529; }
     </style>
@@ -168,12 +164,14 @@ def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist):
     pdf = FPDF()
     pdf.add_page()
     
+    # Header
     pdf.set_font("Arial", 'B', 20)
     pdf.cell(0, 20, "Causal Analysis Report", ln=True, align='C')
     pdf.set_font("Arial", '', 10)
     pdf.cell(0, 10, f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M')}", ln=True, align='C')
     pdf.ln(10)
     
+    # 1. Executive Summary
     pdf.set_font("Arial", 'B', 14)
     pdf.set_fill_color(240, 240, 240)
     pdf.cell(0, 10, "1. Executive Summary", ln=True, fill=True)
@@ -187,41 +185,53 @@ def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist):
     pdf.set_font("Arial", 'B', 12)
     pdf.cell(95, 10, f"Average Impact (ATE): {ate:.4f}", border=1)
     pdf.cell(95, 10, f"Model Fit (R2): {r2:.4f}", border=1, ln=True)
-    
     sig_txt = "Significant (p < 0.05)" if p_val < 0.05 else "Not Significant"
     pdf.cell(95, 10, f"Significance: {sig_txt}", border=1)
     pdf.cell(95, 10, f"95% CI: [{lower:.4f}, {upper:.4f}]", border=1, ln=True)
     pdf.ln(10)
     
+    # 2. Visual Impact Distribution (Matplotlib)
     pdf.set_font("Arial", 'B', 14)
-    pdf.cell(0, 10, "2. Impact Distribution", ln=True, fill=True)
+    pdf.cell(0, 10, "2. Impact Distribution (Visual)", ln=True, fill=True)
     pdf.ln(2)
     
-    pdf.set_font("Arial", '', 11)
-    min_imp = impact_dist.min()
-    max_imp = impact_dist.max()
-    med_imp = impact_dist.median()
-    std_imp = impact_dist.std()
+    # Generate Chart
+    plt.figure(figsize=(6, 3))
+    plt.hist(impact_dist, bins=30, color='#0d6efd', alpha=0.7, edgecolor='black')
+    plt.axvline(x=0, color='red', linestyle='--')
+    plt.title("Distribution of Causal Impact")
+    plt.xlabel("Impact Value")
+    plt.ylabel("Frequency")
+    plt.tight_layout()
     
-    pdf.cell(0, 8, f"Minimum Impact: {min_imp:.4f}", ln=True)
-    pdf.cell(0, 8, f"Maximum Impact: {max_imp:.4f}", ln=True)
-    pdf.cell(0, 8, f"Median Impact: {med_imp:.4f}", ln=True)
-    pdf.cell(0, 8, f"Standard Deviation: {std_imp:.4f}", ln=True)
+    # Save to temp file
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp_file:
+        plt.savefig(tmp_file.name, format="png", dpi=100)
+        tmp_path = tmp_file.name
+    
+    # Embed in PDF
+    pdf.image(tmp_path, x=10, w=190)
+    pdf.ln(5)
+    
+    # Stats Text
+    pdf.set_font("Arial", '', 10)
+    pdf.cell(0, 6, f"Min: {impact_dist.min():.2f} | Max: {impact_dist.max():.2f} | Median: {impact_dist.median():.2f}", ln=True)
     pdf.ln(10)
 
+    # 3. Top Drivers
     pdf.set_font("Arial", 'B', 14)
     pdf.cell(0, 10, "3. Top Drivers of Impact", ln=True, fill=True)
     pdf.ln(2)
     
     pdf.set_font("Arial", '', 11)
     if not feats.empty:
-        pdf.cell(0, 8, "The following variables had the highest influence on the outcome:", ln=True)
+        pdf.cell(0, 8, "Most influential variables:", ln=True)
         pdf.ln(2)
         pdf.set_font("Arial", 'B', 10)
         pdf.cell(140, 8, "Variable Name", border=1)
         pdf.cell(50, 8, "Importance Score", border=1, ln=True)
         pdf.set_font("Arial", '', 10)
-        for index, row in feats.head(10).iterrows():
+        for index, row in feats.head(8).iterrows():
             pdf.cell(140, 8, str(row['Feature']), border=1)
             pdf.cell(50, 8, f"{row['Importance']:.4f}", border=1, ln=True)
     else:
@@ -276,7 +286,6 @@ def run_analysis_logic(df, treatment, outcome, controls):
 
 # --- SIDEBAR ---
 with st.sidebar:
-    # SPACER: Reduced for aggressive lift
     st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
     
     tab_data, tab_logic, tab_run = st.tabs(["Data", "Logic", "Action"])
@@ -288,23 +297,6 @@ with st.sidebar:
             
         uploaded_file = st.file_uploader("Upload CSV", type="csv")
         
-        # HELP INFO WHEN EMPTY
-        if not uploaded_file:
-            st.markdown("""
-            <div class="info-box">
-                <div class="info-title">👋 About this Portal</div>
-                This tool uses <b>Double Machine Learning (DML)</b> to calculate the true causal impact of an intervention, separating signal from noise.
-                <br><br>
-                <div class="info-title">📋 Required Data Format</div>
-                Your CSV should contain:
-                <ul>
-                    <li><b>Treatment Column:</b> 0 or 1 (e.g., Received Email)</li>
-                    <li><b>Outcome Column:</b> Numeric (e.g., Sales $)</li>
-                    <li><b>Confounders:</b> User attributes (Age, Location)</li>
-                </ul>
-            </div>
-            """, unsafe_allow_html=True)
-
         if uploaded_file:
             st.session_state['uploaded_file'] = uploaded_file
             raw_df = pd.read_csv(uploaded_file)
@@ -322,7 +314,6 @@ with st.sidebar:
             treat_col = st.selectbox("Treatment Column", cols, index=0)
             out_col = st.selectbox("Outcome Column", cols, index=1 if len(cols)>1 else 0)
             
-            st.markdown("---")
             use_time = st.checkbox("Enable Time Logic")
             time_col, int_date = None, None
             if use_time:
@@ -334,15 +325,15 @@ with st.sidebar:
                 except:
                     int_date = st.text_input("Intervention Value")
             
+            # SEPARATOR LINE AS REQUESTED
+            st.markdown("---")
+            
             t_num, t_cat = st.tabs(["123 Numerical", "Abc Categorical"])
             
             excl = [treat_col, out_col]
             if time_col: excl.append(time_col)
             available_cols = [c for c in cols if c not in excl]
             
-            auto_num = raw_df[available_cols].select_dtypes(include=np.number).columns.tolist()
-            auto_cat = raw_df[available_cols].select_dtypes(exclude=np.number).columns.tolist()
-
             with t_num:
                 num_covs = st.multiselect("Select Numeric Controls", available_cols, default=[])
             
@@ -357,58 +348,57 @@ with st.sidebar:
 
     # 3. ACTION TAB
     with tab_run:
-        if uploaded_file:
-            if st.session_state['results'] is not None:
-                prev_btn_type = "primary" if st.session_state['active_tab'] != "Action" else "secondary"
-                st.button("Show Previous Analysis", type=prev_btn_type, use_container_width=True, on_click=set_view, args=("Action",))
+        # RUN BUTTON
+        if st.button("RUN NEW ANALYSIS", type="primary", use_container_width=True):
+            st.session_state['active_tab'] = "Action"
+            try:
+                with st.spinner("Calculating Impact..."):
+                    prep_df = raw_df.copy()
+                    if use_time and time_col and int_date:
+                        try:
+                            ts = pd.to_datetime(prep_df[time_col])
+                            ids = pd.to_datetime(int_date)
+                            prep_df['Is_Post'] = (ts >= ids).astype(int)
+                        except:
+                            prep_df['Is_Post'] = 0
+                    
+                    need = [treat_col, out_col] + covs
+                    if 'Is_Post' in prep_df.columns: need.append('Is_Post')
+                    
+                    clean, enc = preprocess_data(prep_df, need, cats)
+                    ml, stats, X_t, T_t, feats = run_analysis_logic(clean, treat_col, out_col, covs)
+                    
+                    if ml:
+                        st.session_state['results'] = {
+                            'ml': ml, 'stats': stats, 'X': X_t, 'df': clean,
+                            'treat': treat_col, 'out': out_col, 'feats': feats
+                        }
+            except ValueError as ve:
+                st.error(str(ve))
+            except Exception as e:
+                st.error(f"Analysis Failed: {e}")
+        
+        # SHOW PREVIOUS BUTTON (Only if analysis exists AND we are NOT on Action tab)
+        if st.session_state['results'] is not None and st.session_state['active_tab'] != "Action":
+             st.button("Show Previous Analysis", type="secondary", use_container_width=True, on_click=set_view, args=("Action",))
+        
+        st.button("Reset / Stop Analysis", type="secondary", use_container_width=True, on_click=reset_analysis)
+        
+        if st.session_state['results']:
+            res = st.session_state['results']
+            ate = res['ml'].ate(res['X'])
+            l, u = res['ml'].ate_interval(res['X'])
             
-            if st.button("RUN NEW ANALYSIS", type="primary", use_container_width=True):
-                st.session_state['active_tab'] = "Action"
-                
-                try:
-                    with st.spinner("Calculating Impact..."):
-                        prep_df = raw_df.copy()
-                        if use_time and time_col and int_date:
-                            try:
-                                ts = pd.to_datetime(prep_df[time_col])
-                                ids = pd.to_datetime(int_date)
-                                prep_df['Is_Post'] = (ts >= ids).astype(int)
-                            except:
-                                prep_df['Is_Post'] = 0
-                        
-                        need = [treat_col, out_col] + covs
-                        if 'Is_Post' in prep_df.columns: need.append('Is_Post')
-                        
-                        clean, enc = preprocess_data(prep_df, need, cats)
-                        ml, stats, X_t, T_t, feats = run_analysis_logic(clean, treat_col, out_col, covs)
-                        
-                        if ml:
-                            st.session_state['results'] = {
-                                'ml': ml, 'stats': stats, 'X': X_t, 'df': clean,
-                                'treat': treat_col, 'out': out_col, 'feats': feats
-                            }
-                except ValueError as ve:
-                    st.error(str(ve))
-                except Exception as e:
-                    st.error(f"Analysis Failed: {e}")
+            if res['stats'] and "Treat" in res['stats'].pvalues:
+                p = res['stats'].pvalues["Treat"]
+                r2 = res['stats'].rsquared
+            else:
+                p = np.nan
+                r2 = 0.0
             
-            st.button("Reset / Stop Analysis", type="secondary", use_container_width=True, on_click=reset_analysis)
-            
-            if st.session_state['results']:
-                res = st.session_state['results']
-                ate = res['ml'].ate(res['X'])
-                l, u = res['ml'].ate_interval(res['X'])
-                
-                if res['stats'] and "Treat" in res['stats'].pvalues:
-                    p = res['stats'].pvalues["Treat"]
-                    r2 = res['stats'].rsquared
-                else:
-                    p = np.nan
-                    r2 = 0.0
-                
-                impact_dist = res['ml'].effect(res['X'])
-                pdf_data = generate_pdf(ate, l, u, p, r2, res['treat'], res['out'], res['feats'], pd.Series(impact_dist))
-                st.download_button("DOWNLOAD PDF REPORT", pdf_data, "causal_report.pdf", "application/pdf", use_container_width=True)
+            impact_dist = res['ml'].effect(res['X'])
+            pdf_data = generate_pdf(ate, l, u, p, r2, res['treat'], res['out'], res['feats'], pd.Series(impact_dist))
+            st.download_button("DOWNLOAD PDF REPORT", pdf_data, "causal_report.pdf", "application/pdf", use_container_width=True)
 
 # --- MAIN PAGE ---
 
@@ -417,8 +407,22 @@ if st.session_state['active_tab'] == "Data":
         st.subheader("Data Inspector")
         st.dataframe(raw_df.head(100), use_container_width=True)
     else:
-        # Show nothing (Sidebar info box handles the context)
-        pass
+        # HELP TEXT WHEN EMPTY
+        st.markdown("""
+        <div class="main-info-box">
+            <div class="info-icon">👋</div>
+            <div class="info-header">Welcome to the Causal Inference Portal</div>
+            <div class="info-text">
+                This tool allows you to measure the <b>true impact</b> of interventions (like marketing campaigns, feature launches, or policy changes) by separating cause from correlation using advanced <b>Double Machine Learning</b>.
+            </div>
+            <div class="info-list">
+                <b>📋 Required Data Format (CSV):</b><br>
+                1. <b>Treatment Column:</b> 0/1 or True/False (Who got the intervention?)<br>
+                2. <b>Outcome Column:</b> Numeric (Sales, clicks, retention)<br>
+                3. <b>Control Variables:</b> User details (Age, Region, etc.)
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
 elif st.session_state['active_tab'] == "Logic":
     if st.session_state['uploaded_file']:
@@ -454,7 +458,7 @@ elif st.session_state['active_tab'] == "Logic":
             
         st.graphviz_chart(g)
     else:
-        pass
+        st.warning("Upload data first.")
 
 elif st.session_state['active_tab'] == "Action":
     if st.session_state['results']:
