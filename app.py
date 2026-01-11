@@ -24,10 +24,13 @@ if 'active_tab' not in st.session_state: st.session_state['active_tab'] = "Data"
 def set_view(view_name):
     st.session_state['active_tab'] = view_name
 
+def reset_analysis():
+    st.session_state['results'] = None
+
 # --- CSS STYLING ---
 css = """
     <style>
-    /* 1. HEADER */
+    /* 1. FIXED HEADER */
     .header-container {
         position: fixed;
         top: 3.75rem;
@@ -35,9 +38,9 @@ css = """
         width: 100%;
         background-color: #ffffff;
         z-index: 999;
-        padding: 15px 40px;
+        padding: 0px 40px;
         border-bottom: 1px solid #e0e0e0;
-        height: 70px;
+        height: 60px; /* Fixed Header Height */
         display: flex;
         align-items: center;
         padding-left: 22rem; 
@@ -50,14 +53,15 @@ css = """
         margin: 0;
     }
     
-    /* 2. PUSH CONTENT DOWN */
+    /* 2. PUSH MAIN CONTENT DOWN */
     .block-container {
-        padding-top: 9rem !important;
+        padding-top: 8rem !important;
     }
 
-    /* 3. SIDEBAR ALIGNMENT (Push Up) */
+    /* 3. SIDEBAR ALIGNMENT - PERFECT FIT */
+    /* Remove default padding from the top of the sidebar container */
     section[data-testid="stSidebar"] > div:first-child {
-        padding-top: 0rem; /* Moved up */
+        padding-top: 0rem;
     }
 
     /* 4. TABS */
@@ -108,6 +112,17 @@ css = """
         font-weight: 700;
         color: #212529;
     }
+    
+    /* 6. INSIGHT BOX */
+    .insight-box {
+        background-color: #f8f9fa;
+        border-left: 4px solid #0d6efd;
+        padding: 15px;
+        border-radius: 4px;
+        margin-bottom: 20px;
+        font-size: 14px;
+        color: #495057;
+    }
 
     h1, h2, h3 { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #212529; }
     </style>
@@ -117,7 +132,7 @@ css = """
     </div>
 """
 
-# Dynamic CSS for Uploader: Red if empty, Gray if full
+# Dynamic CSS for Uploader
 if st.session_state['uploaded_file'] is None:
     css += """
     <style>
@@ -139,20 +154,17 @@ def preprocess_data(df, selected_columns, categorical_cols):
     data = df[selected_columns].copy()
     data = data.dropna()
     
-    # 1. Validation: Check cardinality
     for cat in categorical_cols:
         if cat in data.columns:
             n_unique = data[cat].nunique()
             if n_unique > 100:
-                raise ValueError(f"Column '{cat}' has {n_unique} unique values. Limit is 100. Please group this variable or remove it.")
+                raise ValueError(f"Column '{cat}' has {n_unique} unique values. Limit is 100.")
 
-    # 2. One-Hot Encode
     if categorical_cols:
         valid_cats = [c for c in categorical_cols if c in data.columns]
         if valid_cats:
             data = pd.get_dummies(data, columns=valid_cats, drop_first=True, dtype=int)
             
-    # 3. Label Encode remaining
     encoders = {}
     for col in data.columns:
         if data[col].dtype == 'object' or isinstance(data[col].dtype, pd.PeriodDtype):
@@ -167,30 +179,20 @@ def generate_pdf(ate, lower, upper, p_val, r2, treat, out):
     pdf.add_page()
     pdf.set_font("Arial", 'B', 18)
     pdf.cell(0, 20, "Causal Analysis Report", ln=True, align='C')
-    
     pdf.set_font("Arial", '', 11)
     pdf.cell(0, 10, f"Analysis: Effect of '{treat}' on '{out}'", ln=True, align='C')
     pdf.ln(10)
-    
     pdf.set_font("Arial", 'B', 12)
     pdf.cell(0, 10, "Executive Summary", ln=True)
-    
     pdf.set_font("Arial", '', 11)
     pdf.cell(0, 10, f"Average Treatment Effect (ATE): {ate:.4f}", ln=True)
     pdf.cell(0, 10, f"95% Confidence Interval: [{lower:.4f}, {upper:.4f}]", ln=True)
-    
-    if np.isnan(p_val):
-        sig_txt = "Could not calculate"
-    else:
-        sig_txt = "Significant" if p_val < 0.05 else "Not Significant"
-        
+    sig_txt = "Significant" if p_val < 0.05 else "Not Significant"
     pdf.cell(0, 10, f"Statistical Significance: {sig_txt} (p={p_val:.4f})", ln=True)
     pdf.cell(0, 10, f"Model Fit (R-Squared): {r2:.4f}", ln=True)
-    
     return pdf.output(dest='S').encode('latin-1')
 
-def run_analysis_logic(df, treatment, outcome, controls, time_col=None, date_val=None):
-    # Filter X columns (exclude treatment, outcome, time flags)
+def run_analysis_logic(df, treatment, outcome, controls):
     X_cols = [c for c in df.columns if c not in [treatment, outcome, 'Is_Post']]
     
     if not X_cols:
@@ -202,16 +204,13 @@ def run_analysis_logic(df, treatment, outcome, controls, time_col=None, date_val
     
     Y = df[outcome]
     
-    # Handle Time Logic inside T calculation if pre-calculated
     if 'Is_Post' in df.columns:
         T = df[treatment] * df['Is_Post']
-        # Add main effects (Group & Time) to X for DiD
         X = pd.concat([X, df[treatment].rename("Group_Effect"), df['Is_Post'].rename("Time_Effect")], axis=1)
         features = features + ["Group_Effect", "Time_Effect"]
     else:
         T = df[treatment]
 
-    # ML Model
     est = CausalForestDML(
         model_y=RandomForestRegressor(n_estimators=50, max_depth=6),
         model_t=RandomForestClassifier(n_estimators=50, max_depth=6),
@@ -228,17 +227,25 @@ def run_analysis_logic(df, treatment, outcome, controls, time_col=None, date_val
     except:
         ols = None
     
-    return est, ols, X, T
+    # Calculate Feature Importance for Interpretation
+    # We fit a simple model on the calculated effects to see what drives them
+    effects = est.effect(X)
+    interpreter = RandomForestRegressor(max_depth=4)
+    interpreter.fit(X, effects)
+    importances = pd.DataFrame({
+        'Feature': features, 
+        'Importance': interpreter.feature_importances_
+    }).sort_values('Importance', ascending=False)
+    
+    return est, ols, X, T, importances
 
 # --- SIDEBAR ---
 with st.sidebar:
-    # Spacer for header alignment
-    st.markdown("<div style='height: 50px;'></div>", unsafe_allow_html=True)
+    # SPACER: Adjusted to 60px to match Header Height exactly
+    st.markdown("<div style='height: 60px;'></div>", unsafe_allow_html=True)
     
-    # TACTICAL TABS
     tab_data, tab_logic, tab_run = st.tabs(["Data", "Logic", "Action"])
 
-    # 1. DATA TAB
     with tab_data:
         btn_type = "primary" if st.session_state['active_tab'] != "Data" else "secondary"
         st.button("Show Table View", type=btn_type, use_container_width=True, on_click=set_view, args=("Data",))
@@ -252,7 +259,6 @@ with st.sidebar:
         else:
             cols = []
 
-    # 2. LOGIC TAB
     with tab_logic:
         btn_type = "primary" if st.session_state['active_tab'] != "Logic" else "secondary"
         st.button("Visualize Logic Flow", type=btn_type, use_container_width=True, on_click=set_view, args=("Logic",))
@@ -273,15 +279,12 @@ with st.sidebar:
                 except:
                     int_date = st.text_input("Intervention Value")
             
-            # --- SPLIT CONTROLS INTO TABS ---
-            st.markdown("##### Control Variables")
             t_num, t_cat = st.tabs(["123 Numerical", "Abc Categorical"])
             
             excl = [treat_col, out_col]
             if time_col: excl.append(time_col)
             available_cols = [c for c in cols if c not in excl]
             
-            # Auto-detect numeric columns for convenience
             auto_num = raw_df[available_cols].select_dtypes(include=np.number).columns.tolist()
             auto_cat = raw_df[available_cols].select_dtypes(exclude=np.number).columns.tolist()
 
@@ -289,34 +292,27 @@ with st.sidebar:
                 num_covs = st.multiselect("Select Numeric Controls", available_cols, default=[c for c in auto_num if c in available_cols])
             
             with t_cat:
-                cat_covs = st.multiselect("Select Categorical Controls", available_cols, default=[c for c in auto_cat if c in available_cols], help="Max 100 unique values per variable.")
+                cat_covs = st.multiselect("Select Categorical Controls", available_cols, default=[c for c in auto_cat if c in available_cols], help="Max 100 unique values.")
 
-            # Combine selections
             covs = list(set(num_covs + cat_covs))
-            cats = cat_covs # Explicitly track which ones are categorical for OHE
+            cats = cat_covs 
 
         else:
             st.info("Upload data first")
 
-    # 3. ACTION TAB
     with tab_run:
         if uploaded_file:
             if st.session_state['results'] is not None:
                 prev_btn_type = "primary" if st.session_state['active_tab'] != "Action" else "secondary"
                 st.button("Show Previous Analysis", type=prev_btn_type, use_container_width=True, on_click=set_view, args=("Action",))
             
-            # Run Button
+            # RUN BUTTON
             if st.button("RUN NEW ANALYSIS", type="primary", use_container_width=True):
                 st.session_state['active_tab'] = "Action"
                 
-                # Note about stopping
-                st.caption("ℹ️ To stop a running analysis, click the 'Stop' (X) button in the top right corner of the browser.")
-                
                 try:
                     with st.spinner("Calculating Impact..."):
-                        # Preprocess
                         prep_df = raw_df.copy()
-                        
                         if use_time and time_col and int_date:
                             try:
                                 ts = pd.to_datetime(prep_df[time_col])
@@ -328,20 +324,21 @@ with st.sidebar:
                         need = [treat_col, out_col] + covs
                         if 'Is_Post' in prep_df.columns: need.append('Is_Post')
                         
-                        # This checks limit < 100
                         clean, enc = preprocess_data(prep_df, need, cats)
-                        
-                        ml, stats, X_t, T_t = run_analysis_logic(clean, treat_col, out_col, covs)
+                        ml, stats, X_t, T_t, feats = run_analysis_logic(clean, treat_col, out_col, covs)
                         
                         if ml:
                             st.session_state['results'] = {
                                 'ml': ml, 'stats': stats, 'X': X_t, 'df': clean,
-                                'treat': treat_col, 'out': out_col
+                                'treat': treat_col, 'out': out_col, 'feats': feats
                             }
                 except ValueError as ve:
                     st.error(str(ve))
                 except Exception as e:
                     st.error(f"Analysis Failed: {e}")
+            
+            # STOP / RESET BUTTON
+            st.button("Reset / Stop Analysis", type="secondary", use_container_width=True, on_click=reset_analysis)
             
             if st.session_state['results']:
                 res = st.session_state['results']
@@ -356,18 +353,10 @@ with st.sidebar:
                     r2 = 0.0
                 
                 pdf_data = generate_pdf(ate, l, u, p, r2, res['treat'], res['out'])
-                
-                st.download_button(
-                    label="DOWNLOAD PDF REPORT",
-                    data=pdf_data,
-                    file_name="causal_report.pdf",
-                    mime="application/pdf",
-                    use_container_width=True
-                )
+                st.download_button("DOWNLOAD PDF REPORT", pdf_data, "causal_report.pdf", "application/pdf", use_container_width=True)
 
-# --- MAIN PAGE RENDERING ---
+# --- MAIN PAGE ---
 
-# VIEW 1: DATA
 if st.session_state['active_tab'] == "Data":
     if st.session_state['uploaded_file']:
         st.subheader("Data Inspector")
@@ -375,11 +364,9 @@ if st.session_state['active_tab'] == "Data":
     else:
         st.info("Upload a CSV file in the sidebar Data tab.")
 
-# VIEW 2: LOGIC
 elif st.session_state['active_tab'] == "Logic":
     if st.session_state['uploaded_file']:
         st.subheader("Logic Visualization")
-        
         g = graphviz.Digraph()
         g.attr(rankdir='LR', bgcolor='transparent', margin='0')
         g.attr('node', fontname='Helvetica', shape='box', style='filled', color='white', fontcolor='#333')
@@ -389,22 +376,17 @@ elif st.session_state['active_tab'] == "Logic":
         g.node('O', f'Outcome\n{out_col}', fillcolor='#cfe2ff', color='#084298', fontcolor='#084298')
         g.edge('T', 'O', label=' Impact ')
         
-        # Categorical vs Numeric Controls Node Logic
         if covs:
-            # Re-derive list from multiselects (since covs is combined)
-            # We use the 'cats' variable we defined in sidebar
             vis_cats = [c for c in covs if c in cats]
             vis_nums = [c for c in covs if c not in cats]
-            
             if vis_nums:
                 label_num = "Numeric Controls\n" + "\n".join(vis_nums[:3])
                 if len(vis_nums) > 3: label_num += "\n..."
                 g.node('CN', label_num, shape='ellipse', fillcolor='#fff3cd', color='#856404', fontcolor='#856404')
                 g.edge('CN', 'T', style='dashed', dir='none')
                 g.edge('CN', 'O', style='dashed', dir='none')
-                
             if vis_cats:
-                label_cat = "Categorical Controls\n(OHE)\n" + "\n".join(vis_cats[:3])
+                label_cat = "Categorical Controls\n" + "\n".join(vis_cats[:3])
                 if len(vis_cats) > 3: label_cat += "\n..."
                 g.node('CC', label_cat, shape='ellipse', fillcolor='#f8d7da', color='#842029', fontcolor='#842029')
                 g.edge('CC', 'T', style='dashed', dir='none')
@@ -418,11 +400,11 @@ elif st.session_state['active_tab'] == "Logic":
     else:
         st.warning("Upload data first.")
 
-# VIEW 3: ACTION
 elif st.session_state['active_tab'] == "Action":
     if st.session_state['results']:
         res = st.session_state['results']
         ml, stats = res['ml'], res['stats']
+        feats = res['feats']
         
         ate = ml.ate(res['X'])
         l, u = ml.ate_interval(res['X'])
@@ -441,6 +423,19 @@ elif st.session_state['active_tab'] == "Action":
         
         st.subheader("Analysis Results")
         
+        # --- INSIGHT BOX (NEW) ---
+        direction = "INCREASE" if ate > 0 else "DECREASE"
+        sig_phrase = "statistically significant" if is_sig else "not statistically conclusive"
+        
+        st.markdown(f"""
+        <div class="insight-box">
+            <b>💡 Automated Insight:</b><br>
+            The intervention led to an average <b>{direction}</b> of <b>{abs(ate):.2f}</b> in <b>{out_col}</b>. 
+            This result is <b>{sig_phrase}</b> (Confidence: {100*(1-p):.1f}%). 
+            The model explains <b>{r2:.1%}</b> of the variation in the data.
+        </div>
+        """, unsafe_allow_html=True)
+
         c1, c2, c3, c4 = st.columns(4)
         with c1: st.markdown(f'<div class="metric-card"><div class="metric-label">Average Impact</div><div class="metric-value">{ate:.2f}</div></div>', unsafe_allow_html=True)
         with c2: st.markdown(f'<div class="metric-card"><div class="metric-label">95% Range</div><div class="metric-value">[{l:.2f}, {u:.2f}]</div></div>', unsafe_allow_html=True)
@@ -449,15 +444,39 @@ elif st.session_state['active_tab'] == "Action":
         
         st.markdown("---")
         
-        t1, t2 = st.tabs(["Impact Distribution", "Stats Table"])
+        # Detailed Analysis Tabs
+        t1, t2, t3, t4 = st.tabs(["📉 Impact Distribution", "🧠 Drivers of Impact", "🔍 Segment Analysis", "📊 Stats Table"])
+        
         res['df']['Impact'] = ml.effect(res['X'])
         
         with t1:
-            fig = px.histogram(res['df'], x='Impact', nbins=50, title="Impact Distribution", color_discrete_sequence=['#0d6efd'])
-            fig.update_layout(plot_bgcolor='white', margin=dict(l=20, r=20, t=40, b=20))
+            st.caption("Shows how the impact varies across the population.")
+            fig = px.histogram(res['df'], x='Impact', nbins=50, color_discrete_sequence=['#0d6efd'])
             fig.add_vline(x=0, line_dash="dash", line_color="black")
             st.plotly_chart(fig, use_container_width=True)
+            
         with t2:
+            st.caption("Which variables contribute most to the outcome change?")
+            if not feats.empty:
+                fig2 = px.bar(feats.head(10), x='Importance', y='Feature', orientation='h', color_discrete_sequence=['#0d6efd'])
+                st.plotly_chart(fig2, use_container_width=True)
+            else:
+                st.info("No controls used, so no feature drivers available.")
+
+        with t3:
+            st.caption("Does the impact depend on a specific variable?")
+            if not feats.empty:
+                seg_var = st.selectbox("Select Variable to Segment By:", feats['Feature'].unique())
+                # Check if the variable is in the cleaned dataframe (might be OHE)
+                if seg_var in res['df'].columns:
+                    fig3 = px.scatter(res['df'], x=seg_var, y='Impact', title=f"Impact vs {seg_var}", color='Impact', color_continuous_scale='RdBu')
+                    st.plotly_chart(fig3, use_container_width=True)
+                else:
+                    st.warning(f"Variable '{seg_var}' was processed (e.g., One-Hot Encoded) and cannot be plotted directly here.")
+            else:
+                st.info("No variables available for segmentation.")
+
+        with t4:
             if stats:
                 st.text(stats.summary())
             else:
