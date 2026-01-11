@@ -302,7 +302,6 @@ def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist, g
         g_pdf = create_logic_graph(**graph_config)
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp_g:
             g_pdf.render(filename=tmp_g.name.replace('.png', ''), format='png', cleanup=True)
-            # Reduced size to 80
             pdf.image(tmp_g.name, x=65, w=80) 
     except Exception as e:
         pdf.set_font("Arial", 'I', 8)
@@ -357,16 +356,9 @@ def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist, g
 def run_analysis_logic(df, treatment, outcome, controls, time_col=None):
     """
     Robust logic for handling Causal Inference.
-    Features:
-    1. Automatic Time Feature Engineering (Month, Day, Weekend).
-    2. Lagged Outcomes (Autoregressive features).
-    3. Interaction Terms for Difference-in-Differences.
-    4. Robust RandomForest Hyperparameters.
     """
-    
-    # 1. Feature Engineering: Time Components & Lags
+    # 1. Feature Engineering: Time Components (NO LAGS)
     if time_col and time_col in df.columns:
-        # Convert to datetime
         try:
             df[time_col] = pd.to_datetime(df[time_col])
             
@@ -375,14 +367,8 @@ def run_analysis_logic(df, treatment, outcome, controls, time_col=None):
             df['DayOfWeek'] = df[time_col].dt.dayofweek
             df['Is_Weekend'] = (df['DayOfWeek'] >= 5).astype(int)
             
-            # Sort by date for lagging
-            df = df.sort_values(by=time_col)
-            
-            # 2. Lagged Outcome: Controls for momentum/autocorrelation
-            df['Lagged_Outcome'] = df[outcome].shift(1).fillna(0)
-            
             # Add to list of controls (if not already there)
-            new_feats = ['Month', 'DayOfWeek', 'Is_Weekend', 'Lagged_Outcome']
+            new_feats = ['Month', 'DayOfWeek', 'Is_Weekend']
             for f in new_feats:
                 if f not in controls:
                     controls.append(f)
@@ -390,11 +376,10 @@ def run_analysis_logic(df, treatment, outcome, controls, time_col=None):
         except Exception as e:
             st.warning(f"Time Feature Engineering Failed: {e}")
 
-    # Drop any NaNs created by lagging or existing in data
+    # Drop any NaNs
     df = df.dropna()
     
     # Define X (Controls)
-    # Ensure we only pick columns that actually exist in the dataframe
     valid_controls = [c for c in controls if c in df.columns]
     
     if not valid_controls:
@@ -411,9 +396,7 @@ def run_analysis_logic(df, treatment, outcome, controls, time_col=None):
         # Interaction is the REAL treatment in DiD
         T = df[treatment] * df['Is_Post'] 
         
-        # We must control for the Main Effects separately:
-        # 1. Group Effect (Being in Treatment Group vs Control Group)
-        # 2. Time Effect (Being Post-Intervention vs Pre-Intervention)
+        # We must control for the Main Effects separately
         X = pd.concat([X, 
                        df[treatment].rename("Group_Main_Effect"), 
                        df['Is_Post'].rename("Time_Main_Effect")], axis=1)
@@ -423,8 +406,7 @@ def run_analysis_logic(df, treatment, outcome, controls, time_col=None):
         # Standard Cross-Sectional case
         T = df[treatment]
 
-    # 4. Upgraded Model (More Trees = Better Stability)
-    # Using deeper trees and more estimators to capture complex time dynamics
+    # 4. Upgraded Model (Deep Trees for Robustness)
     est = CausalForestDML(
         model_y=RandomForestRegressor(n_estimators=200, max_depth=10, min_samples_leaf=5),
         model_t=RandomForestClassifier(n_estimators=200, max_depth=10, min_samples_leaf=5),
@@ -531,7 +513,7 @@ with st.sidebar:
                     with st.spinner("Calculating Impact..."):
                         prep_df = raw_df.copy()
                         
-                        # --- FIX FOR 1970 ISSUE & TIME LOGIC ---
+                        # --- FIX: DATE HANDLING ---
                         if use_time and time_col:
                             try:
                                 # Force to datetime immediately so it doesn't get label encoded
@@ -549,7 +531,7 @@ with st.sidebar:
                                 prep_df['Is_Post'] = 0
                         
                         need = [treat_col, out_col] + covs
-                        if use_time and time_col: need.append(time_col) # Keep date column for visual/features
+                        if use_time and time_col: need.append(time_col) 
                         if 'Is_Post' in prep_df.columns: need.append('Is_Post')
                         
                         # Preprocess (One-Hot Encoding)
