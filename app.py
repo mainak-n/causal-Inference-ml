@@ -697,9 +697,9 @@ if st.session_state['active_tab'] == "Data":
         st.markdown("""
         <div style="text-align: center; margin-top: 20px; color: #31333F; line-height: 1.8;">
         1. <b>Time Format: DD-MM-YYYY</b>  (Ensure dates match this format)<br>
-        2. <b>Treatment Column:</b> 0 or 1 (Who got the intervention?)<br>
-        3. <b>Outcome Column:</b> Numeric (Sales, clicks, retention)<br>
-        4. <b>Control Variables:</b> User attributes (Age, Region, etc.)
+        2. <b>Treatment Column:</b> 0 or 1 (Who got the intervention?      )<br>
+        3. <b>Outcome Column:</b> Numeric (Sales, clicks, retention        )<br>
+        4. <b>Control Variables:</b> User attributes (Age, Region, etc.        )
         </div>
         """, unsafe_allow_html=True)
 
