@@ -683,7 +683,7 @@ if st.session_state['active_tab'] == "Data":
             </p>
         </div>
         """, unsafe_allow_html=True)
-        st.markdown("""<div style="font-weight: 600; color: #31333F; font-size: 16px; margin-bottom: 10px; margin-top: 20px;">📋 Required Data Format (CSV):</div>""", unsafe_allow_html=True)
+        st.markdown("""<div style="font-weight: 600; color: #31333F; font-size: 16px; margin-bottom: 10px; margin-top: 20px;">Required Data Format (CSV):</div>""", unsafe_allow_html=True)
         st.markdown("""
         | Date (Opt) | Treatment (0/1) | Outcome ($) | Control 1 |
         | :--- | :--- | :--- | :--- |
@@ -756,7 +756,7 @@ elif st.session_state['active_tab'] == "Action":
         
         st.markdown(f"""
         <div class="insight-box">
-            <b>💡 Automated Insight:</b><br>
+            <b>Automated Insight:</b><br>
             The intervention led to an average <b>{direction}</b> of <b>{abs(ate):.2f}</b> in <b>{out_col}</b>. 
             This result is <b>{sig_text}</b> (Confidence: {100*(1-p):.1f}%). 
             The model explains <b>{r2:.1%}</b> of the variation.
@@ -771,7 +771,7 @@ elif st.session_state['active_tab'] == "Action":
         
         st.markdown("<div style='margin-top: 20px;'></div>", unsafe_allow_html=True)
         
-        t0, t1, t2, t3, t4 = st.tabs(["📈 Treat vs Control", "📉 Impact Distribution", "🧠 Drivers of Impact", "🔍 Segment Analysis", "📊 Stats Table"])
+        t0, t1, t2, t3, t4 = st.tabs(["Treat vs Control", "Impact Distribution", "Drivers of Impact", "Segment Analysis", "Stats Table"])
         
         # --- NEW TAB: TREAT VS CONTROL VISUAL ---
         with t0:
