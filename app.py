@@ -683,15 +683,19 @@ if st.session_state['active_tab'] == "Data":
             </p>
         </div>
         """, unsafe_allow_html=True)
-        st.markdown("""<div style="font-weight: 600; color: #31333F; font-size: 16px; margin-bottom: 10px; margin-top: 20px;">Required Data Format (CSV):</div>""", unsafe_allow_html=True)
+        st.markdown("""<div style="text-align: center; font-weight: 600; color: #31333F; font-size: 16px; margin-bottom: 10px; margin-top: 20px;">Required Data Format (CSV):</div>""", unsafe_allow_html=True)
         st.markdown("""
+        <div style="display: flex; justify-content: center;">
+        
         | Date (Opt) | Treatment (0/1) | Outcome ($) | Control 1 |
-        | :--- | :--- | :--- | :--- |
+        | :---: | :---: | :---: | :---: |
         | 02-01-2023 | 1 | 120.50 | North |
         | 25-02-2023 | 0 | 85.00 | South |
-        """)
+        
+        </div>
+        """, unsafe_allow_html=True)
         st.markdown("""
-        <div style="margin-top: 20px; color: #31333F; line-height: 1.8;">
+        <div style="text-align: center; margin-top: 20px; color: #31333F; line-height: 1.8;">
         1. <b>Time Format: DD-MM-YYYY</b>  (Ensure CSV dates match this format.)<br>
         2. <b>Treatment Column:</b> 0 or 1 (Who got the intervention?)<br>
         3. <b>Outcome Column:</b> Numeric (Sales, clicks, retention)<br>
