@@ -293,7 +293,7 @@ def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist, g
     pdf.cell(95, 7, f"Average Impact (ATE): {ate:.4f}", border=1)
     pdf.cell(95, 7, f"Model Fit (R2): {r2:.4f}", border=1, ln=True)
     
-    sig_txt = "Significant (p < 0.05)" if p_val < 0.05 else "Not Significant"
+    sig_txt = "Significant" if (lower > 0 or upper < 0) else "Inconclusive"
     pdf.cell(95, 7, f"Significance: {sig_txt}", border=1)
     pdf.cell(95, 7, f"95% CI: [{lower:.4f}, {upper:.4f}]", border=1, ln=True)
     pdf.ln(6)
@@ -452,7 +452,6 @@ def run_analysis_logic(df, treatment, outcome, controls, time_col=None):
         ate = model.params['T_Interaction']
         conf = model.conf_int().loc['T_Interaction']
         lower, upper = conf[0], conf[1]
-        p_value = model.pvalues['T_Interaction']
         
         # Package into object that looks like the ML result for compatibility
         class DiDResult:
@@ -479,11 +478,15 @@ def run_analysis_logic(df, treatment, outcome, controls, time_col=None):
         T = df[treatment]
 
         # FIX: Updated n_estimators to 100 to be divisible by subforest_size (4)
+        # FIX: Added random_state=42 for reproducibility
+        SEED = 42
+        
         est = CausalForestDML(
-            model_y=RandomForestRegressor(n_estimators=100, max_depth=10, min_samples_leaf=5),
-            model_t=RandomForestClassifier(n_estimators=100, max_depth=10, min_samples_leaf=5),
+            model_y=RandomForestRegressor(n_estimators=100, max_depth=10, min_samples_leaf=5, random_state=SEED),
+            model_t=RandomForestClassifier(n_estimators=100, max_depth=10, min_samples_leaf=5, random_state=SEED),
             discrete_treatment=True,
-            n_estimators=100 
+            n_estimators=100,
+            random_state=SEED
         )
         est.fit(Y, T, X=X)
         
@@ -496,7 +499,7 @@ def run_analysis_logic(df, treatment, outcome, controls, time_col=None):
             ols = None
         
         effects = est.effect(X)
-        interpreter = RandomForestRegressor(max_depth=4)
+        interpreter = RandomForestRegressor(max_depth=4, random_state=SEED)
         interpreter.fit(X, effects)
         importances = pd.DataFrame({
             'Feature': features, 
@@ -639,16 +642,19 @@ with st.sidebar:
                 else:
                     ate, l, u = 0, 0, 0
                 
-                # Get P-Value for Significance
-                if res['stats']:
-                    target_term = 'T_Interaction' if 'Is_Post' in res['df'].columns else 'Treat'
-                    if target_term in res['stats'].pvalues:
-                        p = res['stats'].pvalues[target_term]
-                        r2 = res['stats'].rsquared
-                    else:
-                        p, r2 = np.nan, 0.0
+                # Determine Significance directly from the Interval
+                if (l > 0) or (u < 0):
+                    is_sig = True
+                    sig_color = "#198754" # Green
+                    sig_text = "Significant"
+                    confidence_msg = "The 95% Confidence Interval excludes 0."
                 else:
-                    p, r2 = np.nan, 0.0
+                    is_sig = False
+                    sig_color = "#dc3545" # Red
+                    sig_text = "Inconclusive"
+                    confidence_msg = "The 95% Confidence Interval includes 0."
+
+                r2_val = stats.rsquared if stats else 0.0
                 
                 fname = st.session_state['uploaded_file'].name
                 
@@ -659,7 +665,7 @@ with st.sidebar:
                     impact_dist = res['ml'].effect(res['X'])
                 
                 # PASS DF TO GENERATE PDF
-                pdf_data = generate_pdf(ate, l, u, p, r2, res['treat'], res['out'], res['feats'], pd.Series(impact_dist), res['graph_config'], fname, res['df'])
+                pdf_data = generate_pdf(ate, l, u, 0.05, r2_val, res['treat'], res['out'], res['feats'], pd.Series(impact_dist), res['graph_config'], fname, res['df'])
                 st.download_button("DOWNLOAD PDF REPORT", pdf_data, "causal_report.pdf", "application/pdf", use_container_width=True)
 
 # --- MAIN PAGE ---
@@ -683,23 +689,19 @@ if st.session_state['active_tab'] == "Data":
             </p>
         </div>
         """, unsafe_allow_html=True)
-        st.markdown("""<div style="text-align: center; font-weight: 600; color: #31333F; font-size: 16px; margin-bottom: 10px; margin-top: 20px;">Required Data Format (CSV):</div>""", unsafe_allow_html=True)
+        st.markdown("""<div style="font-weight: 600; color: #31333F; font-size: 16px; margin-bottom: 10px; margin-top: 20px;">📋 Required Data Format (CSV):</div>""", unsafe_allow_html=True)
         st.markdown("""
-        <div style="display: flex; justify-content: center;">
-        
         | Date (Opt) | Treatment (0/1) | Outcome ($) | Control 1 |
-        | :---: | :---: | :---: | :---: |
-        | 02-01-2023 | 1 | 120.50 | North |
-        | 25-02-2023 | 0 | 85.00 | South |
-        
-        </div>
-        """, unsafe_allow_html=True)
+        | :--- | :--- | :--- | :--- |
+        | 01-02-2023 | 1 | 120.50 | North |
+        | 02-02-2023 | 0 | 85.00 | South |
+        """)
         st.markdown("""
-        <div style="text-align: center; margin-top: 20px; color: #31333F; line-height: 1.8;">
-        1. <b>Time Format: DD-MM-YYYY</b>  (Ensure dates match this format)<br>
-        2. <b>Treatment Column:</b> 0 or 1 (Who got the intervention?      )<br>
-        3. <b>Outcome Column:</b> Numeric (Sales, clicks, retention        )<br>
-        4. <b>Control Variables:</b> User attributes (Age, Region, etc.        )
+        <div style="margin-top: 20px; color: #31333F; line-height: 1.8;">
+        1. <b>Time Format: DD-MM-YYYY</b>  (Ensure CSV dates match this format.)<br>
+        2. <b>Treatment Column:</b> 0 or 1 (Who got the intervention?)<br>
+        3. <b>Outcome Column:</b> Numeric (Sales, clicks, retention)<br>
+        4. <b>Control Variables:</b> User attributes (Age, Region, etc.)
         </div>
         """, unsafe_allow_html=True)
 
@@ -735,18 +737,19 @@ elif st.session_state['active_tab'] == "Action":
             l, u = ml.ate_interval(res['X'])
             impact_vals = ml.effect(res['X'])
         
-        if stats:
-            target = 'T_Interaction' if 'Is_Post' in res['df'].columns else 'Treat'
-            if target in stats.pvalues:
-                p = stats.pvalues[target]
-                r2 = stats.rsquared
-                is_sig = p < 0.05
-                sig_color = "#198754" if is_sig else "#dc3545"
-                sig_text = "Significant" if is_sig else "Inconclusive"
-            else:
-                p, r2, sig_color, sig_text = np.nan, 0.0, "#6c757d", "N/A"
+        # Determine Significance directly from the Interval
+        if (l > 0) or (u < 0):
+            is_sig = True
+            sig_color = "#198754" # Green
+            sig_text = "Significant"
+            confidence_msg = "The 95% Confidence Interval excludes 0."
         else:
-            p, r2, sig_color, sig_text = np.nan, 0.0, "#6c757d", "N/A"
+            is_sig = False
+            sig_color = "#dc3545" # Red
+            sig_text = "Inconclusive"
+            confidence_msg = "The 95% Confidence Interval includes 0."
+
+        r2_val = stats.rsquared if stats else 0.0
         
         fname = st.session_state['uploaded_file'].name
         st.markdown(f"""
@@ -760,22 +763,21 @@ elif st.session_state['active_tab'] == "Action":
         
         st.markdown(f"""
         <div class="insight-box">
-            <b>Automated Insight:</b><br>
+            <b>💡 Automated Insight:</b><br>
             The intervention led to an average <b>{direction}</b> of <b>{abs(ate):.2f}</b> in <b>{out_col}</b>. 
-            This result is <b>{sig_text}</b> (Confidence: {100*(1-p):.1f}%). 
-            The model explains <b>{r2:.1%}</b> of the variation.
+            This result is <b>{sig_text}</b>. {confidence_msg}
         </div>
         """, unsafe_allow_html=True)
 
         c1, c2, c3, c4 = st.columns(4)
         with c1: st.markdown(f'<div class="metric-container"><div class="metric-label">Average Impact</div><div class="metric-value">{ate:.2f}</div></div>', unsafe_allow_html=True)
         with c2: st.markdown(f'<div class="metric-container"><div class="metric-label">95% Range</div><div class="metric-value">[{l:.2f}, {u:.2f}]</div></div>', unsafe_allow_html=True)
-        with c3: st.markdown(f'<div class="metric-container"><div class="metric-label">Certainty</div><div class="metric-value" style="color:{sig_color}">{sig_text}</div></div>', unsafe_allow_html=True)
-        with c4: st.markdown(f'<div class="metric-container"><div class="metric-label">Model Fit (R2)</div><div class="metric-value">{r2:.2f}</div></div>', unsafe_allow_html=True)
+        with c3: st.markdown(f'<div class="metric-container"><div class="metric-label">Result</div><div class="metric-value" style="color:{sig_color}">{sig_text}</div></div>', unsafe_allow_html=True)
+        with c4: st.markdown(f'<div class="metric-container"><div class="metric-label">Model Fit (R2)</div><div class="metric-value">{r2_val:.2f}</div></div>', unsafe_allow_html=True)
         
         st.markdown("<div style='margin-top: 20px;'></div>", unsafe_allow_html=True)
         
-        t0, t1, t2, t3, t4 = st.tabs(["Treat vs Control", "Impact Distribution", "Drivers of Impact", "Segment Analysis", "Stats Table"])
+        t0, t1, t2, t3, t4 = st.tabs(["📈 Treat vs Control", "📉 Impact Distribution", "🧠 Drivers of Impact", "🔍 Segment Analysis", "📊 Stats Table"])
         
         # --- NEW TAB: TREAT VS CONTROL VISUAL ---
         with t0:
@@ -791,7 +793,7 @@ elif st.session_state['active_tab'] == "Action":
                  # Re-fetch the original time column from raw_df to avoid preprocessing issues
                  t_c = res['graph_config']['time_col']
                  try:
-                     plot_df[t_c] = pd.to_datetime(raw_df[t_c], dayfirst=True) # Ensure parsing
+                     plot_df[t_c] = pd.to_datetime(raw_df[t_c], dayfirst=True)
                  except:
                      plot_df[t_c] = raw_df[t_c]
                  
