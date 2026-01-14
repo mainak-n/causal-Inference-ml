@@ -740,7 +740,8 @@ elif st.session_state['active_tab'] == "Action":
             if target in stats.pvalues:
                 p = stats.pvalues[target]
                 r2 = stats.rsquared
-                is_sig = p < 0.05
+                if (l > 0) or (u < 0):
+                    is_sig = True
                 sig_color = "#198754" if is_sig else "#dc3545"
                 sig_text = "Significant" if is_sig else "Inconclusive"
             else:
