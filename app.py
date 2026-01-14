@@ -49,25 +49,10 @@ def set_view(view_name):
 
 def reset_analysis():
     st.session_state['results'] = None
-    flush_memory()
-
-def flush_memory():
-    # 1. Clear all Streamlit data and resource caches
-    st.cache_data.clear()
-    st.cache_resource.clear()
-    
-    # 2. Clear out large objects from Session State
-    for key in list(st.session_state.keys()):
-        if key == 'results':  # Target your specific heavy object
-            st.session_state[key] = None
-            
-    # 3. Manually trigger Python's garbage collector
-    gc.collect() 
     
 # --- CACHING ---
 @st.cache_data(max_entries=1)
 def load_data(uploaded_file):
-    flush_memory()
     return pd.read_csv(uploaded_file)
 
 # --- CSS STYLING ---
@@ -526,7 +511,7 @@ with st.sidebar:
         btn_type = "primary" if st.session_state['active_tab'] != "Data" else "secondary"
         st.button("Show Table View", type=btn_type, use_container_width=True, on_click=set_view, args=("Data",))
             
-        uploaded_file = st.file_uploader("Upload CSV", type="csv", help="Max file size: 50MB")
+        uploaded_file = st.file_uploader("Upload CSV", type="csv", help="Max file size: 200MB")
         
         if uploaded_file:
             raw_df = load_data(uploaded_file)
