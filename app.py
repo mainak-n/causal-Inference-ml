@@ -21,6 +21,24 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# --- GLOBAL HELPER CLASSES (Must be defined here for Session State) ---
+class DiDResult:
+    """Helper class to mimic EconML structure for DiD results so logic is consistent."""
+    def __init__(self, ate, lower, upper):
+        self._ate = ate
+        self._lower = lower
+        self._upper = upper
+
+    def ate(self, X): 
+        return self._ate
+        
+    def ate_interval(self, X): 
+        return self._lower, self._upper
+        
+    def effect(self, X): 
+        # Returns constant effect for all rows
+        return np.full(len(X), self._ate)
+
 # --- STATE MANAGEMENT ---
 if 'results' not in st.session_state: st.session_state['results'] = None
 if 'uploaded_file' not in st.session_state: st.session_state['uploaded_file'] = None
@@ -178,7 +196,6 @@ st.markdown(css, unsafe_allow_html=True)
 # --- HELPER FUNCTIONS ---
 def preprocess_data(df, selected_columns, categorical_cols):
     """Basic preprocessing: drop NaNs and One-Hot Encoding."""
-    # Filter to exist columns only
     valid_cols = [c for c in selected_columns if c in df.columns]
     data = df[valid_cols].copy()
     data = data.dropna()
@@ -196,7 +213,6 @@ def preprocess_data(df, selected_columns, categorical_cols):
             
     encoders = {}
     for col in data.columns:
-        # Check if the column is NOT a datetime before trying to label encode it.
         if (data[col].dtype == 'object' or isinstance(data[col].dtype, pd.PeriodDtype)) and not pd.api.types.is_datetime64_any_dtype(data[col]):
             le = LabelEncoder()
             data[col] = le.fit_transform(data[col].astype(str))
@@ -286,7 +302,7 @@ def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist, g
             except: pass
     except Exception as e:
         pdf.set_font("Arial", 'I', 8)
-        pdf.cell(0, 6, "Note: To render flowchart, ensure 'graphviz' is in packages.txt", ln=True)
+        pdf.cell(0, 6, "Note: Flowchart rendering skipped (Graphviz missing or error).", ln=True)
     pdf.ln(5)
 
     # 3. Visual Section (CONDITIONAL)
@@ -432,26 +448,18 @@ def run_analysis_logic(df, treatment, outcome, controls, time_col=None):
         
         # Fit OLS
         # FIX: Added cov_type='HC3' for Heteroskedasticity Robust Standard Errors
-        # Essential for DiD to handle serial correlation and varying variance
         model = sm.OLS(Y_ols, X_ols).fit(cov_type='HC3')
         
         # Extract Results
         ate = model.params['T_Interaction']
         conf = model.conf_int().loc['T_Interaction']
         lower, upper = conf[0], conf[1]
-        p_value = model.pvalues['T_Interaction']
         
-        # Package into object that looks like the ML result for compatibility
-        class DiDResult:
-            def ate(self, X): return ate
-            def ate_interval(self, X): return lower, upper
-            def effect(self, X): return np.full(len(X), ate) # Constant effect for DiD
-            
         # Feature Importance (use t-values from OLS)
         params = model.params.drop(['const', 'T_Interaction', treatment, 'Is_Post'], errors='ignore')
         importances = pd.DataFrame({'Feature': params.index, 'Importance': params.abs()}).sort_values('Importance', ascending=False)
         
-        return DiDResult(), model, None, None, importances
+        return DiDResult(ate, lower, upper), model, None, None, importances
 
     # --- BRANCH 2: NO TIME LOGIC (Cross-Sectional DML) ---
     else:
@@ -613,30 +621,52 @@ with st.sidebar:
             
             if st.session_state['results']:
                 res = st.session_state['results']
+                ml, stats = res['ml'], res['stats']
+                feats = res['feats']
                 
-                if hasattr(res['ml'], 'ate_interval'):
-                    ate = res['ml'].ate(None) if 'Is_Post' in res['df'].columns else res['ml'].ate(res['X'])
-                    l, u = res['ml'].ate_interval(None) if 'Is_Post' in res['df'].columns else res['ml'].ate_interval(res['X'])
+                # 1. RETRIEVE & CAST VALUES
+                if 'Is_Post' in res['df'].columns:
+                    # DiD Mode
+                    val_ate = ml.ate(None)
+                    val_l, val_u = ml.ate_interval(None)
+                    impact_vals = pd.Series([val_ate] * len(res['df']))
                 else:
-                    ate, l, u = 0, 0, 0
+                    # DML Mode
+                    val_ate = ml.ate(res['X'])
+                    val_l, val_u = ml.ate_interval(res['X'])
+                    impact_vals = ml.effect(res['X'])
                 
-                if res['stats']:
-                    target_term = 'T_Interaction' if 'Is_Post' in res['df'].columns else 'Treat'
-                    if target_term in res['stats'].pvalues:
-                        p = res['stats'].pvalues[target_term]
-                        r2 = res['stats'].rsquared
+                # FORCE FLOAT CONVERSION (Prevents Array Ambiguity Error)
+                ate = float(val_ate) if np.ndim(val_ate) == 0 else float(val_ate[0])
+                l = float(val_l) if np.ndim(val_l) == 0 else float(val_l[0])
+                u = float(val_u) if np.ndim(val_u) == 0 else float(val_u[0])
+
+                # 2. SIGNIFICANCE CHECKS
+                if stats:
+                    target = 'T_Interaction' if 'Is_Post' in res['df'].columns else 'Treat'
+                    if target in stats.pvalues:
+                        p = stats.pvalues[target]
+                        r2 = stats.rsquared
+                        is_sig = (l > 0) or (u < 0) # Safe now that l/u are floats
+                        sig_color = "#198754" if is_sig else "#dc3545"
+                        sig_text = "Significant" if is_sig else "Inconclusive"
                     else:
-                        p, r2 = np.nan, 0.0
+                        p, r2, sig_color, sig_text = np.nan, 0.0, "#6c757d", "N/A"
                 else:
+                    # Fallback for DML if stats is None
+                    is_sig = (l > 0) or (u < 0)
+                    sig_color = "#198754" if is_sig else "#dc3545"
+                    sig_text = "Significant" if is_sig else "Inconclusive"
                     p, r2 = np.nan, 0.0
+
                 
                 fname = st.session_state['uploaded_file'].name
                 
-                # Impact Dist
+                # Impact Dist - Handle scalar vs series for PDF
                 if 'Is_Post' in res['df'].columns:
-                    impact_dist = float(ate) # Scalar for DiD
+                    impact_dist = float(ate) 
                 else:
-                    impact_dist = res['ml'].effect(res['X'])
+                    impact_dist = ml.effect(res['X'])
                 
                 # PASS DF TO GENERATE PDF
                 # FIX: Pass Series to allow type check in function to work properly even for single value
@@ -704,36 +734,45 @@ elif st.session_state['active_tab'] == "Logic":
 elif st.session_state['active_tab'] == "Action":
     if st.session_state['results']:
         res = st.session_state['results']
+        # Variables 'ate', 'l', 'u', 'p', etc. are already calculated in the sidebar logic block 
+        # But we need to make sure they are available here or re-extract them.
+        # Since the sidebar runs BEFORE the main page, we can assume the results dict is populated.
+        # However, the extraction logic (casting to float) was done inside the Sidebar block.
+        # We need to repeat the extraction here for display, OR rely on the fact that we just ran it.
+        # SAFEST OPTION: Re-extract safely here.
+        
         ml, stats = res['ml'], res['stats']
         feats = res['feats']
         
-        # Retrieve stats
+        # RE-EXTRACT & CAST (Same robust logic as sidebar)
         if 'Is_Post' in res['df'].columns:
-            # DiD Mode
-            ate = ml.ate(None)
-            l, u = ml.ate_interval(None)
-            impact_vals = pd.Series([ate] * len(res['df'])) # Constant impact
+            val_ate = ml.ate(None)
+            val_l, val_u = ml.ate_interval(None)
+            impact_vals = pd.Series([val_ate] * len(res['df']))
         else:
-            # DML Mode
-            ate = ml.ate(res['X'])
-            l, u = ml.ate_interval(res['X'])
+            val_ate = ml.ate(res['X'])
+            val_l, val_u = ml.ate_interval(res['X'])
             impact_vals = ml.effect(res['X'])
+
+        ate = float(val_ate) if np.ndim(val_ate) == 0 else float(val_ate[0])
+        l = float(val_l) if np.ndim(val_l) == 0 else float(val_l[0])
+        u = float(val_u) if np.ndim(val_u) == 0 else float(val_u[0])
         
         if stats:
             target = 'T_Interaction' if 'Is_Post' in res['df'].columns else 'Treat'
             if target in stats.pvalues:
                 p = stats.pvalues[target]
                 r2 = stats.rsquared
-                if (l > 0) or (u < 0):
-                    is_sig = True
-                else:
-                    is_sig = False
+                is_sig = (l > 0) or (u < 0)
                 sig_color = "#198754" if is_sig else "#dc3545"
                 sig_text = "Significant" if is_sig else "Inconclusive"
             else:
                 p, r2, sig_color, sig_text = np.nan, 0.0, "#6c757d", "N/A"
         else:
-            p, r2, sig_color, sig_text = np.nan, 0.0, "#6c757d", "N/A"
+            is_sig = (l > 0) or (u < 0)
+            sig_color = "#198754" if is_sig else "#dc3545"
+            sig_text = "Significant" if is_sig else "Inconclusive"
+            p, r2 = np.nan, 0.0
         
         fname = st.session_state['uploaded_file'].name
         st.markdown(f"""
@@ -749,7 +788,7 @@ elif st.session_state['active_tab'] == "Action":
         <div class="insight-box">
             <b>Automated Insight:</b><br>
             The intervention led to an average <b>{direction}</b> of <b>{abs(ate):.2f}</b> in <b>{out_col}</b>. 
-            This result is <b>{sig_text}</b> (Confidence: {100*(1-p):.1f}%). 
+            This result is <b>{sig_text}</b> (Confidence: {100*(1-p) if not np.isnan(p) else 'N/A'}%). 
             The model explains <b>{r2:.1%}</b> of the variation.
         </div>
         """, unsafe_allow_html=True)
