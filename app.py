@@ -452,6 +452,7 @@ def run_analysis_logic(df, treatment, outcome, controls, time_col=None):
         ate = model.params['T_Interaction']
         conf = model.conf_int().loc['T_Interaction']
         lower, upper = conf[0], conf[1]
+        p_value = model.pvalues['T_Interaction']
         
         # Package into object that looks like the ML result for compatibility
         class DiDResult:
@@ -477,16 +478,12 @@ def run_analysis_logic(df, treatment, outcome, controls, time_col=None):
         Y = df[outcome]
         T = df[treatment]
 
-        # FIX: Updated n_estimators to 500 for stability
-        # FIX: Added random_state=42 for reproducibility
-        SEED = 42
-        
+        # FIX: Updated n_estimators to 100 to be divisible by subforest_size (4)
         est = CausalForestDML(
-            model_y=RandomForestRegressor(n_estimators=500, max_depth=10, min_samples_leaf=5, random_state=SEED),
-            model_t=RandomForestClassifier(n_estimators=500, max_depth=10, min_samples_leaf=5, random_state=SEED),
+            model_y=RandomForestRegressor(n_estimators=100, max_depth=10, min_samples_leaf=5),
+            model_t=RandomForestClassifier(n_estimators=100, max_depth=10, min_samples_leaf=5),
             discrete_treatment=True,
-            n_estimators=500,
-            random_state=SEED
+            n_estimators=100 
         )
         est.fit(Y, T, X=X)
         
@@ -499,7 +496,7 @@ def run_analysis_logic(df, treatment, outcome, controls, time_col=None):
             ols = None
         
         effects = est.effect(X)
-        interpreter = RandomForestRegressor(max_depth=4, random_state=SEED)
+        interpreter = RandomForestRegressor(max_depth=4)
         interpreter.fit(X, effects)
         importances = pd.DataFrame({
             'Feature': features, 
@@ -634,9 +631,6 @@ with st.sidebar:
             
             if st.session_state['results']:
                 res = st.session_state['results']
-                # FIX: Unpack variables from results dict
-                ml, stats = res['ml'], res['stats']
-                feats = res['feats']
                 
                 # Check if it's DiD (Scalar) or DML (Forest)
                 if hasattr(res['ml'], 'ate_interval'):
@@ -645,118 +639,201 @@ with st.sidebar:
                 else:
                     ate, l, u = 0, 0, 0
                 
-                # Determine Significance directly from the Interval
-                # This depends ONLY on 'l' and 'u', so it will always be defined
-                if (l > 0) or (u < 0):
-                    is_sig = True
-                    sig_color = "#198754" # Green
-                    sig_text = "Significant"
-                    confidence_msg = "The 95% Confidence Interval excludes 0."
+                # Get P-Value for Significance
+                if res['stats']:
+                    target_term = 'T_Interaction' if 'Is_Post' in res['df'].columns else 'Treat'
+                    if target_term in res['stats'].pvalues:
+                        p = res['stats'].pvalues[target_term]
+                        r2 = res['stats'].rsquared
+                    else:
+                        p, r2 = np.nan, 0.0
                 else:
-                    is_sig = False
-                    sig_color = "#dc3545" # Red
-                    sig_text = "Inconclusive"
-                    confidence_msg = "The 95% Confidence Interval includes 0."
-
-                # Get R2 safely
-                r2_val = stats.rsquared if stats else 0.0
+                    p, r2 = np.nan, 0.0
                 
                 fname = st.session_state['uploaded_file'].name
-                st.markdown(f"""
-                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 20px;">
-                    <h3 style="margin: 0; padding: 0; font-family: 'Source Sans Pro', sans-serif; font-weight: 600; color: #31333F;">Analysis Results</h3>
-                    <span style="color: #adb5bd; font-size: 1.2rem; font-weight: 400; padding-top: 2px;">: {fname}</span>
-                </div>
-                """, unsafe_allow_html=True)
                 
-                direction = "INCREASE" if ate > 0 else "DECREASE"
-                
-                st.markdown(f"""
-                <div class="insight-box">
-                    <b>💡 Automated Insight:</b><br>
-                    The intervention led to an average <b>{direction}</b> of <b>{abs(ate):.2f}</b> in <b>{out_col}</b>. 
-                    This result is <b>{sig_text}</b>. {confidence_msg}
-                </div>
-                """, unsafe_allow_html=True)
-
-                c1, c2, c3, c4 = st.columns(4)
-                with c1: st.markdown(f'<div class="metric-container"><div class="metric-label">Average Impact</div><div class="metric-value">{ate:.2f}</div></div>', unsafe_allow_html=True)
-                with c2: st.markdown(f'<div class="metric-container"><div class="metric-label">95% Range</div><div class="metric-value">[{l:.2f}, {u:.2f}]</div></div>', unsafe_allow_html=True)
-                with c3: st.markdown(f'<div class="metric-container"><div class="metric-label">Result</div><div class="metric-value" style="color:{sig_color}">{sig_text}</div></div>', unsafe_allow_html=True)
-                with c4: st.markdown(f'<div class="metric-container"><div class="metric-label">Model Fit (R2)</div><div class="metric-value">{r2_val:.2f}</div></div>', unsafe_allow_html=True)
-                
-                st.markdown("<div style='margin-top: 20px;'></div>", unsafe_allow_html=True)
-                
-                t0, t1, t2, t3, t4 = st.tabs(["📈 Treat vs Control", "📉 Impact Distribution", "🧠 Drivers of Impact", "🔍 Segment Analysis", "📊 Stats Table"])
-                
-                # --- NEW TAB: TREAT VS CONTROL VISUAL ---
-                with t0:
-                    st.caption("Visual check: How do the groups compare?")
-                    plot_df = res['df'].copy()
-                    
-                    # Map labels for clearer plotting
-                    plot_df['Group'] = plot_df[res['treat']].map({1: 'Treated', 0: 'Control'})
-                    
-                    # Scenario 1: TIME SERIES (Line Chart)
-                    if res['graph_config']['use_time'] and res['graph_config']['time_col'] in raw_df.columns:
-                         # Re-fetch the original time column from raw_df to avoid preprocessing issues
-                         t_c = res['graph_config']['time_col']
-                         try:
-                             plot_df[t_c] = pd.to_datetime(raw_df[t_c], dayfirst=True)
-                         except:
-                             plot_df[t_c] = raw_df[t_c]
-                         
-                         # Group by Time and Group
-                         trend = plot_df.groupby([t_c, 'Group'])[res['out']].mean().reset_index()
-                         
-                         fig = px.line(trend, x=t_c, y=res['out'], color='Group', 
-                                      title="Average Outcome Trends (Parallel Trends Check)",
-                                      color_discrete_map={'Treated': '#28a745', 'Control': '#6c757d'},
-                                      markers=True)
-                         st.plotly_chart(fig, use_container_width=True)
-                         
-                    # Scenario 2: NO TIME (Box Plot)
-                    else:
-                         fig = px.box(plot_df, x='Group', y=res['out'], color='Group',
-                                     title="Outcome Distribution by Group",
-                                     color_discrete_map={'Treated': '#28a745', 'Control': '#6c757d'})
-                         st.plotly_chart(fig, use_container_width=True)
-
-                with t1:
-                    # Impact Dist
-                    if 'Is_Post' in res['df'].columns:
-                        impact_vals = pd.Series([ate] * len(res['df'])) # Constant impact
-                        impact_dist = float(ate)
-                    else:
-                        impact_vals = ml.effect(res['X'])
-                        impact_dist = impact_vals
-
-                    fig = px.histogram(x=impact_vals, nbins=30, color_discrete_sequence=['#0d6efd'], labels={'x': 'Impact Value'})
-                    fig.add_vline(x=0, line_dash="dash", line_color="black")
-                    st.plotly_chart(fig, use_container_width=True)
-                    
-                with t2:
-                    if not feats.empty:
-                        fig2 = px.bar(feats.head(10), x='Importance', y='Feature', orientation='h', color_discrete_sequence=['#0d6efd'])
-                        st.plotly_chart(fig2, use_container_width=True)
-                    else:
-                        st.info("No drivers available.")
-
-                with t3:
-                    if not feats.empty:
-                        seg = st.selectbox("Segment By:", feats['Feature'].unique())
-                        if seg in res['df'].columns:
-                            fig3 = px.scatter(res['df'], x=seg, y=impact_vals, title=f"Impact vs {seg}")
-                            st.plotly_chart(fig3, use_container_width=True)
-                    else:
-                        st.info("No segments available.")
-
-                with t4:
-                    if stats: st.text(stats.summary())
+                # Impact Dist
+                if 'Is_Post' in res['df'].columns:
+                    impact_dist = float(ate) # Scalar for DiD
+                else:
+                    impact_dist = res['ml'].effect(res['X'])
                 
                 # PASS DF TO GENERATE PDF
-                pdf_data = generate_pdf(ate, l, u, 0.05, r2_val, res['treat'], res['out'], res['feats'], pd.Series(impact_dist), res['graph_config'], fname, res['df'])
+                pdf_data = generate_pdf(ate, l, u, p, r2, res['treat'], res['out'], res['feats'], pd.Series(impact_dist), res['graph_config'], fname, res['df'])
                 st.download_button("DOWNLOAD PDF REPORT", pdf_data, "causal_report.pdf", "application/pdf", use_container_width=True)
 
+# --- MAIN PAGE ---
+
+if st.session_state['active_tab'] == "Data":
+    if st.session_state['uploaded_file']:
+        fname = st.session_state['uploaded_file'].name
+        st.markdown(f"""
+        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 20px;">
+            <h3 style="margin: 0; padding: 0; font-family: 'Source Sans Pro', sans-serif; font-weight: 600; color: #31333F;">Data Inspector</h3>
+            <span style="color: #adb5bd; font-size: 1.2rem; font-weight: 400; padding-top: 2px;">: {fname}</span>
+        </div>
+        """, unsafe_allow_html=True)
+        st.dataframe(raw_df.head(100), use_container_width=True)
+    else:
+        st.markdown("""
+        <div class="main-info-box">
+            <h3 style="text-align: center; color: #31333F; margin-bottom: 15px;">Welcome to the Causal Inference Portal</h3>
+            <p style="color: #555; line-height: 1.6; margin-bottom: 25px;">
+                This tool allows you to measure the <b>true impact</b> of interventions using advanced <b>Double Machine Learning</b> and <b>Difference-in-Differences</b>.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+        st.markdown("""<div style="text-align: center; font-weight: 600; color: #31333F; font-size: 16px; margin-bottom: 10px; margin-top: 20px;">Required Data Format (CSV):</div>""", unsafe_allow_html=True)
+        st.markdown("""
+        <div style="display: flex; justify-content: center;">
+        
+        | Date (Opt) | Treatment (0/1) | Outcome ($) | Control 1 |
+        | :---: | :---: | :---: | :---: |
+        | 02-01-2023 | 1 | 120.50 | North |
+        | 25-02-2023 | 0 | 85.00 | South |
+        
+        </div>
+        """, unsafe_allow_html=True)
+        st.markdown("""
+        <div style="text-align: center; margin-top: 20px; color: #31333F; line-height: 1.8;">
+        1. <b>Time Format: DD-MM-YYYY</b>  (Ensure dates match this format)<br>
+        2. <b>Treatment Column:</b> 0 or 1 (Who got the intervention?      )<br>
+        3. <b>Outcome Column:</b> Numeric (Sales, clicks, retention        )<br>
+        4. <b>Control Variables:</b> User attributes (Age, Region, etc.        )
+        </div>
+        """, unsafe_allow_html=True)
+
+elif st.session_state['active_tab'] == "Logic":
+    if st.session_state['uploaded_file']:
+        fname = st.session_state['uploaded_file'].name
+        st.markdown(f"""
+        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 20px;">
+            <h3 style="margin: 0; padding: 0; font-family: 'Source Sans Pro', sans-serif; font-weight: 600; color: #31333F;">Logic Visualization</h3>
+            <span style="color: #adb5bd; font-size: 1.2rem; font-weight: 400; padding-top: 2px;">: {fname}</span>
+        </div>
+        """, unsafe_allow_html=True)
+        g = create_logic_graph(treat_col, out_col, covs, cats, use_time, time_col, int_date)
+        st.graphviz_chart(g)
+    else:
+        st.warning("Upload data first.")
+
+elif st.session_state['active_tab'] == "Action":
+    if st.session_state['results']:
+        res = st.session_state['results']
+        ml, stats = res['ml'], res['stats']
+        feats = res['feats']
+        
+        # Retrieve stats
+        if 'Is_Post' in res['df'].columns:
+            # DiD Mode
+            ate = ml.ate(None)
+            l, u = ml.ate_interval(None)
+            impact_vals = pd.Series([ate] * len(res['df'])) # Constant impact
+        else:
+            # DML Mode
+            ate = ml.ate(res['X'])
+            l, u = ml.ate_interval(res['X'])
+            impact_vals = ml.effect(res['X'])
+        
+        if stats:
+            target = 'T_Interaction' if 'Is_Post' in res['df'].columns else 'Treat'
+            if target in stats.pvalues:
+                p = stats.pvalues[target]
+                r2 = stats.rsquared
+                if (l > 0) or (u < 0):
+                    is_sig = True
+                sig_color = "#198754" if is_sig else "#dc3545"
+                sig_text = "Significant" if is_sig else "Inconclusive"
+            else:
+                p, r2, sig_color, sig_text = np.nan, 0.0, "#6c757d", "N/A"
+        else:
+            p, r2, sig_color, sig_text = np.nan, 0.0, "#6c757d", "N/A"
+        
+        fname = st.session_state['uploaded_file'].name
+        st.markdown(f"""
+        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 20px;">
+            <h3 style="margin: 0; padding: 0; font-family: 'Source Sans Pro', sans-serif; font-weight: 600; color: #31333F;">Analysis Results</h3>
+            <span style="color: #adb5bd; font-size: 1.2rem; font-weight: 400; padding-top: 2px;">: {fname}</span>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        direction = "INCREASE" if ate > 0 else "DECREASE"
+        
+        st.markdown(f"""
+        <div class="insight-box">
+            <b>Automated Insight:</b><br>
+            The intervention led to an average <b>{direction}</b> of <b>{abs(ate):.2f}</b> in <b>{out_col}</b>. 
+            This result is <b>{sig_text}</b> (Confidence: {100*(1-p):.1f}%). 
+            The model explains <b>{r2:.1%}</b> of the variation.
+        </div>
+        """, unsafe_allow_html=True)
+
+        c1, c2, c3, c4 = st.columns(4)
+        with c1: st.markdown(f'<div class="metric-container"><div class="metric-label">Average Impact</div><div class="metric-value">{ate:.2f}</div></div>', unsafe_allow_html=True)
+        with c2: st.markdown(f'<div class="metric-container"><div class="metric-label">95% Range</div><div class="metric-value">[{l:.2f}, {u:.2f}]</div></div>', unsafe_allow_html=True)
+        with c3: st.markdown(f'<div class="metric-container"><div class="metric-label">Certainty</div><div class="metric-value" style="color:{sig_color}">{sig_text}</div></div>', unsafe_allow_html=True)
+        with c4: st.markdown(f'<div class="metric-container"><div class="metric-label">Model Fit (R2)</div><div class="metric-value">{r2:.2f}</div></div>', unsafe_allow_html=True)
+        
+        st.markdown("<div style='margin-top: 20px;'></div>", unsafe_allow_html=True)
+        
+        t0, t1, t2, t3, t4 = st.tabs(["Treat vs Control", "Impact Distribution", "Drivers of Impact", "Segment Analysis", "Stats Table"])
+        
+        # --- NEW TAB: TREAT VS CONTROL VISUAL ---
+        with t0:
+            st.caption("Visual check: How do the groups compare?")
+            plot_df = res['df'].copy()
+            
+            # Map labels for clearer plotting
+            plot_df['Group'] = plot_df[res['treat']].map({1: 'Treated', 0: 'Control'})
+            
+            # Scenario 1: TIME SERIES (Line Chart)
+            # We check if Time Logic was used AND if the time column is present in the df
+            if res['graph_config']['use_time'] and res['graph_config']['time_col'] in raw_df.columns:
+                 # Re-fetch the original time column from raw_df to avoid preprocessing issues
+                 t_c = res['graph_config']['time_col']
+                 try:
+                     plot_df[t_c] = pd.to_datetime(raw_df[t_c], dayfirst=True) # Ensure parsing
+                 except:
+                     plot_df[t_c] = raw_df[t_c]
+                 
+                 # Group by Time and Group
+                 trend = plot_df.groupby([t_c, 'Group'])[res['out']].mean().reset_index()
+                 
+                 fig = px.line(trend, x=t_c, y=res['out'], color='Group', 
+                              title="Average Outcome Trends (Parallel Trends Check)",
+                              color_discrete_map={'Treated': '#28a745', 'Control': '#6c757d'},
+                              markers=True)
+                 st.plotly_chart(fig, use_container_width=True)
+                 
+            # Scenario 2: NO TIME (Box Plot)
+            else:
+                 fig = px.box(plot_df, x='Group', y=res['out'], color='Group',
+                             title="Outcome Distribution by Group",
+                             color_discrete_map={'Treated': '#28a745', 'Control': '#6c757d'})
+                 st.plotly_chart(fig, use_container_width=True)
+
+        with t1:
+            fig = px.histogram(x=impact_vals, nbins=30, color_discrete_sequence=['#0d6efd'], labels={'x': 'Impact Value'})
+            fig.add_vline(x=0, line_dash="dash", line_color="black")
+            st.plotly_chart(fig, use_container_width=True)
+            
+        with t2:
+            if not feats.empty:
+                fig2 = px.bar(feats.head(10), x='Importance', y='Feature', orientation='h', color_discrete_sequence=['#0d6efd'])
+                st.plotly_chart(fig2, use_container_width=True)
+            else:
+                st.info("No drivers available.")
+
+        with t3:
+            if not feats.empty:
+                seg = st.selectbox("Segment By:", feats['Feature'].unique())
+                if seg in res['df'].columns:
+                    fig3 = px.scatter(res['df'], x=seg, y=impact_vals, title=f"Impact vs {seg}")
+                    st.plotly_chart(fig3, use_container_width=True)
+            else:
+                st.info("No segments available.")
+
+        with t4:
+            if stats: st.text(stats.summary())
     else:
         st.info("Configure logic and click Run Analysis in the sidebar.")
