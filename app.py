@@ -10,10 +10,9 @@ from fpdf import FPDF
 import graphviz
 from datetime import datetime
 import matplotlib.pyplot as plt
-import matplotlib.dates as mdates  # Added for PDF chart formatting
+import matplotlib.dates as mdates
 import tempfile
 import os
-import textwrap
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
@@ -73,7 +72,6 @@ css = """
     }
     [data-testid="stSidebarNav"] { display: none; }
     
-    /* ONLY pull up tabs in the sidebar */
     section[data-testid="stSidebar"] .stTabs { 
         margin-top: -30px; 
     } 
@@ -152,31 +150,6 @@ css = """
         box-shadow: 0 4px 12px rgba(0,0,0,0.05);
     }
     
-    /* 7. EXAMPLE TABLE STYLE */
-    .example-table {
-        width: 100%;
-        border-collapse: collapse;
-        font-size: 14px;
-        font-family: "Source Sans Pro", sans-serif;
-        color: #333;
-        background-color: #fff;
-        border: 1px solid #e0e0e0;
-        margin-bottom: 20px;
-    }
-    .example-table th {
-        background-color: #f8f9fa;
-        color: #555;
-        font-weight: 600;
-        text-align: left;
-        padding: 12px;
-        border-bottom: 2px solid #e0e0e0;
-    }
-    .example-table td {
-        padding: 10px 12px;
-        border-bottom: 1px solid #f0f0f0;
-    }
-    .example-table tr:last-child td { border-bottom: none; }
-
     /* General */
     h1, h2, h3 { font-family: "Source Sans Pro", sans-serif; }
     </style>
@@ -205,7 +178,9 @@ st.markdown(css, unsafe_allow_html=True)
 # --- HELPER FUNCTIONS ---
 def preprocess_data(df, selected_columns, categorical_cols):
     """Basic preprocessing: drop NaNs and One-Hot Encoding."""
-    data = df[selected_columns].copy()
+    # Filter to exist columns only
+    valid_cols = [c for c in selected_columns if c in df.columns]
+    data = df[valid_cols].copy()
     data = data.dropna()
     
     for cat in categorical_cols:
@@ -266,7 +241,6 @@ def create_logic_graph(treat, out, covs, cats, use_time, time_col, int_date):
 def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist, graph_config, filename, df):
     """
     Generates a PDF report. 
-    If Time Logic is ON: Replaces Impact Distribution Histogram with Treatment vs Control Trend Line Chart.
     """
     pdf = FPDF()
     pdf.add_page()
@@ -308,6 +282,8 @@ def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist, g
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp_g:
             g_pdf.render(filename=tmp_g.name.replace('.png', ''), format='png', cleanup=True)
             pdf.image(tmp_g.name, x=65, w=80) 
+            try: os.unlink(tmp_g.name) 
+            except: pass
     except Exception as e:
         pdf.set_font("Arial", 'I', 8)
         pdf.cell(0, 6, "Note: To render flowchart, ensure 'graphviz' is in packages.txt", ln=True)
@@ -328,21 +304,18 @@ def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist, g
         plot_df = df.copy()
         time_c = graph_config['time_col']
         
-        # Ensure date format for plotting using dayfirst=True
         try:
             plot_df[time_c] = pd.to_datetime(plot_df[time_c], dayfirst=True)
         except:
-            pass # Keep as is if conversion fails
+            pass 
             
         # Aggregate
         trend = plot_df.groupby([time_c, treat])[out].mean().reset_index()
         
         # Plot using standard Matplotlib
-        # Treated
         treated_data = trend[trend[treat] == 1]
         plt.plot(treated_data[time_c], treated_data[out], label='Treated', color='#28a745', marker='.', linewidth=2)
         
-        # Control
         control_data = trend[trend[treat] == 0]
         plt.plot(control_data[time_c], control_data[out], label='Control', color='#6c757d', marker='.', linewidth=2)
         
@@ -352,7 +325,7 @@ def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist, g
         plt.legend(fontsize=8)
         plt.xticks(fontsize=7, rotation=45)
         
-        # --- FIX: Set Date Format for PDF Chart ---
+        # Set Date Format
         plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%d-%m-%Y'))
         
         plt.yticks(fontsize=7)
@@ -365,7 +338,17 @@ def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist, g
         pdf.ln(3)
         
         plt.figure(figsize=(5, 2.5))
+        
+        # FIX: Robust check for scalar vs array
+        is_scalar = False
         if isinstance(impact_dist, (int, float)):
+            is_scalar = True
+        elif isinstance(impact_dist, (pd.Series, np.ndarray, list)):
+             if len(impact_dist) == 1:
+                 is_scalar = True
+                 impact_dist = float(impact_dist.iloc[0]) if isinstance(impact_dist, pd.Series) else float(impact_dist[0])
+
+        if is_scalar:
             # If scalar (DiD but missing time col in df), draw line
             plt.axvline(x=impact_dist, color='#0d6efd', linewidth=4, label='Impact')
             plt.xlim(impact_dist - 10, impact_dist + 10)
@@ -383,7 +366,11 @@ def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist, g
     # Save Plot to Temp File for PDF insertion
     with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp_p:
         plt.savefig(tmp_p.name, format="png", dpi=100)
+        plt.close() # FIX: Close plot to free memory
         pdf.image(tmp_p.name, x=65, w=80)
+        try: os.unlink(tmp_p.name)
+        except: pass
+
     pdf.ln(3)
     
     # 4. Top Drivers
@@ -410,14 +397,13 @@ def generate_pdf(ate, lower, upper, p_val, r2, treat, out, feats, impact_dist, g
 def run_analysis_logic(df, treatment, outcome, controls, time_col=None):
     """
     Robust logic for Causal Inference.
-    - If Time Logic: Uses Statsmodels DiD Regression (OLS) for robustness.
+    - If Time Logic: Uses Statsmodels DiD Regression (OLS) with robust errors (HC3).
     - If No Time Logic: Uses CausalForestDML for Heterogeneity.
     """
     
     # 1. Feature Engineering (For ML controls)
     if time_col and time_col in df.columns:
         try:
-            # FIX: Ensure proper date parsing with dayfirst
             df[time_col] = pd.to_datetime(df[time_col], dayfirst=True)
             df['Month'] = df[time_col].dt.month
             df['DayOfWeek'] = df[time_col].dt.dayofweek
@@ -440,13 +426,14 @@ def run_analysis_logic(df, treatment, outcome, controls, time_col=None):
         df['T_Interaction'] = df[treatment] * df['Is_Post']
         
         # Prepare X matrix for OLS
-        # We need: Constant, Treatment (Group), Is_Post (Time), Interaction, Controls
         X_ols = df[[treatment, 'Is_Post', 'T_Interaction'] + valid_controls].copy()
         X_ols = sm.add_constant(X_ols)
         Y_ols = df[outcome]
         
         # Fit OLS
-        model = sm.OLS(Y_ols, X_ols).fit()
+        # FIX: Added cov_type='HC3' for Heteroskedasticity Robust Standard Errors
+        # Essential for DiD to handle serial correlation and varying variance
+        model = sm.OLS(Y_ols, X_ols).fit(cov_type='HC3')
         
         # Extract Results
         ate = model.params['T_Interaction']
@@ -475,10 +462,10 @@ def run_analysis_logic(df, treatment, outcome, controls, time_col=None):
             X = df[valid_controls]
             features = valid_controls
         
-        Y = df[outcome]
-        T = df[treatment]
+        # FIX: Flatten arrays for Scikit-learn compatibility
+        Y = df[outcome].values.ravel()
+        T = df[treatment].values.ravel()
 
-        # FIX: Updated n_estimators to 100 to be divisible by subforest_size (4)
         est = CausalForestDML(
             model_y=RandomForestRegressor(n_estimators=100, max_depth=10, min_samples_leaf=5),
             model_t=RandomForestClassifier(n_estimators=100, max_depth=10, min_samples_leaf=5),
@@ -489,7 +476,7 @@ def run_analysis_logic(df, treatment, outcome, controls, time_col=None):
         
         # Statsmodels for summary table only
         try:
-            X_ols = pd.concat([T.rename("Treat"), pd.DataFrame(X, index=df.index)], axis=1)
+            X_ols = pd.concat([pd.Series(T, name="Treat", index=df.index), pd.DataFrame(X, index=df.index)], axis=1)
             X_ols = sm.add_constant(X_ols)
             ols = sm.OLS(Y, X_ols).fit()
         except:
@@ -540,17 +527,15 @@ with st.sidebar:
             if use_time:
                 time_col = st.selectbox("Date Column", cols)
                 try:
-                    # Fix: Ensure date conversion for Date Input with dayfirst=True
                     if raw_df[time_col].dtype == 'object':
-                         temp_dates = pd.to_datetime(raw_df[time_col], dayfirst=True)
+                          temp_dates = pd.to_datetime(raw_df[time_col], dayfirst=True)
                     else:
-                         temp_dates = raw_df[time_col]
-                         
+                          temp_dates = raw_df[time_col]
+                          
                     min_d = temp_dates.min().date()
                     max_d = temp_dates.max().date()
                     default_d = min_d + (max_d - min_d) // 2
                     
-                    # --- FIX: Set format to DD/MM/YYYY in sidebar ---
                     int_date = st.date_input("Intervention Date", value=default_d, min_value=min_d, max_value=max_d, format="DD/MM/YYYY")
                 except:
                     int_date = st.text_input("Intervention Value")
@@ -581,10 +566,8 @@ with st.sidebar:
                     with st.spinner("Calculating Impact..."):
                         prep_df = raw_df.copy()
                         
-                        # --- 1970 FIX & DD-MM-YYYY FIX ---
                         if use_time and time_col:
                             try:
-                                # Ensure parsing respects DD-MM-YYYY
                                 prep_df[time_col] = pd.to_datetime(prep_df[time_col], dayfirst=True)
                             except:
                                 pass 
@@ -592,7 +575,6 @@ with st.sidebar:
                         # Handle DiD Logic
                         if use_time and time_col and int_date:
                             try:
-                                # Ensure parsing respects DD-MM-YYYY
                                 ids = pd.to_datetime(int_date, dayfirst=True)
                                 prep_df['Is_Post'] = (prep_df[time_col] >= ids).astype(int)
                             except:
@@ -632,14 +614,12 @@ with st.sidebar:
             if st.session_state['results']:
                 res = st.session_state['results']
                 
-                # Check if it's DiD (Scalar) or DML (Forest)
                 if hasattr(res['ml'], 'ate_interval'):
                     ate = res['ml'].ate(None) if 'Is_Post' in res['df'].columns else res['ml'].ate(res['X'])
                     l, u = res['ml'].ate_interval(None) if 'Is_Post' in res['df'].columns else res['ml'].ate_interval(res['X'])
                 else:
                     ate, l, u = 0, 0, 0
                 
-                # Get P-Value for Significance
                 if res['stats']:
                     target_term = 'T_Interaction' if 'Is_Post' in res['df'].columns else 'Treat'
                     if target_term in res['stats'].pvalues:
@@ -659,7 +639,8 @@ with st.sidebar:
                     impact_dist = res['ml'].effect(res['X'])
                 
                 # PASS DF TO GENERATE PDF
-                pdf_data = generate_pdf(ate, l, u, p, r2, res['treat'], res['out'], res['feats'], pd.Series(impact_dist), res['graph_config'], fname, res['df'])
+                # FIX: Pass Series to allow type check in function to work properly even for single value
+                pdf_data = generate_pdf(ate, l, u, p, r2, res['treat'], res['out'], res['feats'], pd.Series(impact_dist) if not isinstance(impact_dist, float) else impact_dist, res['graph_config'], fname, res['df'])
                 st.download_button("DOWNLOAD PDF REPORT", pdf_data, "causal_report.pdf", "application/pdf", use_container_width=True)
 
 # --- MAIN PAGE ---
@@ -712,8 +693,11 @@ elif st.session_state['active_tab'] == "Logic":
             <span style="color: #adb5bd; font-size: 1.2rem; font-weight: 400; padding-top: 2px;">: {fname}</span>
         </div>
         """, unsafe_allow_html=True)
-        g = create_logic_graph(treat_col, out_col, covs, cats, use_time, time_col, int_date)
-        st.graphviz_chart(g)
+        try:
+            g = create_logic_graph(treat_col, out_col, covs, cats, use_time, time_col, int_date)
+            st.graphviz_chart(g)
+        except Exception:
+            st.warning("Graphviz not found on server. Visualization disabled.")
     else:
         st.warning("Upload data first.")
 
@@ -742,6 +726,8 @@ elif st.session_state['active_tab'] == "Action":
                 r2 = stats.rsquared
                 if (l > 0) or (u < 0):
                     is_sig = True
+                else:
+                    is_sig = False
                 sig_color = "#198754" if is_sig else "#dc3545"
                 sig_text = "Significant" if is_sig else "Inconclusive"
             else:
@@ -792,27 +778,28 @@ elif st.session_state['active_tab'] == "Action":
                  # Re-fetch the original time column from raw_df to avoid preprocessing issues
                  t_c = res['graph_config']['time_col']
                  try:
-                     plot_df[t_c] = pd.to_datetime(raw_df[t_c], dayfirst=True) # Ensure parsing
+                      plot_df[t_c] = pd.to_datetime(raw_df[t_c], dayfirst=True) # Ensure parsing
                  except:
-                     plot_df[t_c] = raw_df[t_c]
+                      plot_df[t_c] = raw_df[t_c]
                  
                  # Group by Time and Group
                  trend = plot_df.groupby([t_c, 'Group'])[res['out']].mean().reset_index()
                  
                  fig = px.line(trend, x=t_c, y=res['out'], color='Group', 
-                              title="Average Outcome Trends (Parallel Trends Check)",
-                              color_discrete_map={'Treated': '#28a745', 'Control': '#6c757d'},
-                              markers=True)
+                               title="Average Outcome Trends (Parallel Trends Check)",
+                               color_discrete_map={'Treated': '#28a745', 'Control': '#6c757d'},
+                               markers=True)
                  st.plotly_chart(fig, use_container_width=True)
                  
             # Scenario 2: NO TIME (Box Plot)
             else:
                  fig = px.box(plot_df, x='Group', y=res['out'], color='Group',
-                             title="Outcome Distribution by Group",
-                             color_discrete_map={'Treated': '#28a745', 'Control': '#6c757d'})
+                              title="Outcome Distribution by Group",
+                              color_discrete_map={'Treated': '#28a745', 'Control': '#6c757d'})
                  st.plotly_chart(fig, use_container_width=True)
 
         with t1:
+            # FIX: Ensure impact_vals is a format plotly likes
             fig = px.histogram(x=impact_vals, nbins=30, color_discrete_sequence=['#0d6efd'], labels={'x': 'Impact Value'})
             fig.add_vline(x=0, line_dash="dash", line_color="black")
             st.plotly_chart(fig, use_container_width=True)
